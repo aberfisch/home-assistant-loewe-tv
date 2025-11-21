@@ -34,10 +34,29 @@ RC_KEY_MUTE = 13
 RC_KEY_CHANNEL_UP = 32
 RC_KEY_CHANNEL_DOWN = 33
 
+
+def validate_mac(mac: str) -> str:
+    """Validate and normalize MAC address."""
+    # Remove common separators
+    mac = mac.replace(":", "").replace("-", "").replace(".", "").upper()
+    
+    # Check if it's a valid MAC address (12 hex characters)
+    if len(mac) != 12:
+        raise vol.Invalid("MAC address must be 12 hexadecimal characters")
+    
+    try:
+        int(mac, 16)
+    except ValueError:
+        raise vol.Invalid("MAC address must contain only hexadecimal characters")
+    
+    # Return in standard format with colons
+    return ":".join(mac[i:i+2] for i in range(0, 12, 2))
+
+
 PLATFORM_SCHEMA = cv.PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_HOST): cv.string,
-        vol.Required(CONF_MAC): cv.string,
+        vol.Required(CONF_MAC): validate_mac,
         vol.Optional(CONF_NAME, default="Loewe TV"): cv.string,
         vol.Optional(CONF_PORT, default=DEFAULT_PORT): cv.port,
     }
