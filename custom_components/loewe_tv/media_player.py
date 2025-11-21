@@ -63,11 +63,18 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         self._is_volume_muted = False
         self._wsdl_url = f"http://{host}:8080/loewe/iControl/wsdl/iControlService.wsdl"
         self._client = None
+        # Use MAC address as unique ID since it's unique per device
+        self._attr_unique_id = mac.replace(":", "").lower()
 
     @property
     def name(self) -> str:
         """Return the name of the device."""
         return self._name
+
+    @property
+    def unique_id(self) -> str:
+        """Return the unique ID of the device."""
+        return self._attr_unique_id
 
     @property
     def state(self) -> MediaPlayerState:
