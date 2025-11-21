@@ -47,7 +47,7 @@ def validate_mac(mac: str) -> str:
     try:
         int(mac, 16)
     except ValueError:
-        raise vol.Invalid("MAC address must contain only hexadecimal characters")
+        raise vol.Invalid("MAC address must contain only hexadecimal characters (0-9, A-F)")
     
     # Return in standard format with colons
     return ":".join(mac[i:i+2] for i in range(0, 12, 2))
