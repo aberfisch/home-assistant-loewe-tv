@@ -15,9 +15,14 @@ PLATFORMS = [Platform.MEDIA_PLAYER]
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Loewe TV component from YAML configuration."""
-    _LOGGER.debug("Setting up Loewe TV integration with config: %s", config.get(DOMAIN, "No domain config"))
-    # Store the config for platform setup if needed
+    _LOGGER.debug("Setting up Loewe TV integration")
+    # Initialize domain data
     hass.data.setdefault(DOMAIN, {})
+    
+    # YAML platform configuration is automatically handled by Home Assistant
+    # when it finds "platform: loewe_tv" under media_player in configuration.yaml
+    # The async_setup_platform function in media_player.py will be called automatically
+    
     return True
 
 
