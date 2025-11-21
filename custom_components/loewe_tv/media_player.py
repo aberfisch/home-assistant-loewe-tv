@@ -6,7 +6,6 @@ import random
 from typing import Any
 import xml.etree.ElementTree as ET
 
-import voluptuous as vol
 from wakeonlan import send_magic_packet
 
 from homeassistant.components.media_player import (
@@ -18,9 +17,7 @@ from homeassistant.components.media_player import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_MAC, CONF_NAME, CONF_PORT
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,31 +30,6 @@ RC_KEY_VOLUME_DOWN = 17
 RC_KEY_MUTE = 13
 RC_KEY_CHANNEL_UP = 32
 RC_KEY_CHANNEL_DOWN = 33
-
-PLATFORM_SCHEMA = cv.PLATFORM_SCHEMA.extend(
-    {
-        vol.Required(CONF_HOST): cv.string,
-        vol.Required(CONF_MAC): cv.string,
-        vol.Optional(CONF_NAME, default="Loewe TV"): cv.string,
-        vol.Optional(CONF_PORT, default=DEFAULT_PORT): cv.port,
-    }
-)
-
-
-async def async_setup_platform(
-    hass: HomeAssistant,
-    config: ConfigType,
-    async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
-) -> None:
-    """Set up the Loewe TV platform from YAML configuration."""
-    host = config[CONF_HOST]
-    mac = config[CONF_MAC]
-    name = config[CONF_NAME]
-    port = config[CONF_PORT]
-
-    _LOGGER.debug("Setting up Loewe TV at %s:%s", host, port)
-    async_add_entities([LoeweTVMediaPlayer(hass, host, mac, name, port)], True)
 
 
 async def async_setup_entry(
