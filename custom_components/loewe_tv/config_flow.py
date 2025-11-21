@@ -5,7 +5,7 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.const import CONF_HOST, CONF_MAC, CONF_NAME
+from homeassistant.const import CONF_HOST, CONF_MAC, CONF_NAME, CONF_PORT
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 import homeassistant.helpers.config_validation as cv
@@ -13,6 +13,8 @@ import homeassistant.helpers.config_validation as cv
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+
+DEFAULT_PORT = 905
 
 
 def validate_mac(mac: str) -> str:
@@ -71,6 +73,7 @@ class LoeweTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_HOST): str,
                 vol.Required(CONF_MAC): str,
                 vol.Optional(CONF_NAME, default="Loewe TV"): str,
+                vol.Optional(CONF_PORT, default=DEFAULT_PORT): int,
             }
         )
 
@@ -126,12 +129,14 @@ class LoeweTVOptionsFlow(config_entries.OptionsFlow):
         current_host = self.config_entry.data.get(CONF_HOST, "")
         current_mac = self.config_entry.data.get(CONF_MAC, "")
         current_name = self.config_entry.data.get(CONF_NAME, "Loewe TV")
+        current_port = self.config_entry.data.get(CONF_PORT, DEFAULT_PORT)
 
         data_schema = vol.Schema(
             {
                 vol.Required(CONF_HOST, default=current_host): str,
                 vol.Required(CONF_MAC, default=current_mac): str,
                 vol.Optional(CONF_NAME, default=current_name): str,
+                vol.Optional(CONF_PORT, default=current_port): int,
             }
         )
 

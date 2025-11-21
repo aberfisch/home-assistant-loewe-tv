@@ -14,7 +14,7 @@ from homeassistant.components.media_player import (
     MediaPlayerState,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST, CONF_MAC, CONF_NAME
+from homeassistant.const import CONF_HOST, CONF_MAC, CONF_NAME, CONF_PORT
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -22,11 +22,14 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 _LOGGER = logging.getLogger(__name__)
 
+DEFAULT_PORT = 905
+
 PLATFORM_SCHEMA = cv.PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_HOST): cv.string,
         vol.Required(CONF_MAC): cv.string,
         vol.Optional(CONF_NAME, default="Loewe TV"): cv.string,
+        vol.Optional(CONF_PORT, default=DEFAULT_PORT): cv.port,
     }
 )
 
@@ -41,9 +44,10 @@ async def async_setup_platform(
     host = config[CONF_HOST]
     mac = config[CONF_MAC]
     name = config[CONF_NAME]
+    port = config[CONF_PORT]
 
-    _LOGGER.debug("Setting up Loewe TV at %s", host)
-    async_add_entities([LoeweTVMediaPlayer(hass, host, mac, name)], True)
+    _LOGGER.debug("Setting up Loewe TV at %s:%s", host, port)
+    async_add_entities([LoeweTVMediaPlayer(hass, host, mac, name, port)], True)
 
 
 async def async_setup_entry(
@@ -55,27 +59,29 @@ async def async_setup_entry(
     host = entry.data[CONF_HOST]
     mac = entry.data[CONF_MAC]
     name = entry.data.get(CONF_NAME, "Loewe TV")
+    port = entry.data.get(CONF_PORT, DEFAULT_PORT)
 
-    _LOGGER.debug("Setting up Loewe TV at %s from config entry", host)
-    async_add_entities([LoeweTVMediaPlayer(hass, host, mac, name, entry.entry_id)], True)
+    _LOGGER.debug("Setting up Loewe TV at %s:%s from config entry", host, port)
+    async_add_entities([LoeweTVMediaPlayer(hass, host, mac, name, port, entry.entry_id)], True)
 
 
 class LoeweTVMediaPlayer(MediaPlayerEntity):
     """Representation of a Loewe TV."""
 
     def __init__(
-        self, hass: HomeAssistant, host: str, mac: str, name: str, entry_id: str | None = None
+        self, hass: HomeAssistant, host: str, mac: str, name: str, port: int = DEFAULT_PORT, entry_id: str | None = None
     ) -> None:
         """Initialize the Loewe TV device."""
         self._hass = hass
         self._host = host
         self._mac = mac
         self._name = name
+        self._port = port
         self._entry_id = entry_id
         self._state = MediaPlayerState.OFF
         self._volume = 0
         self._is_volume_muted = False
-        self._wsdl_url = f"http://{host}:8080/loewe/iControl/wsdl/iControlService.wsdl"
+        self._wsdl_url = f"http://{host}:{port}/loewe/iControl/wsdl/iControlService.wsdl"
         self._client = None
         # Use MAC address as unique ID since it's unique per device
         self._attr_unique_id = mac.replace(":", "").lower()

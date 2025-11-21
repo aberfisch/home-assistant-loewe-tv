@@ -42,6 +42,7 @@ A custom Home Assistant integration for controlling Loewe Television sets via th
 4. Follow the setup wizard:
    - Enter the IP address of your Loewe TV
    - Enter the MAC address for Wake-on-LAN
+   - Enter the port number (default: 905, older models may use 8080)
    - Optionally customize the device name
 
 You can later modify these settings by clicking **CONFIGURE** on the Loewe TV integration card.
@@ -56,6 +57,7 @@ media_player:
     host: 192.168.1.100  # IP address of your Loewe TV
     mac: "AA:BB:CC:DD:EE:FF"  # MAC address for Wake-on-LAN
     name: "Living Room TV"  # Optional, defaults to "Loewe TV"
+    port: 905  # Optional, defaults to 905 (older models may use 8080)
 ```
 
 ### Configuration Variables
@@ -65,6 +67,7 @@ media_player:
 | `host` | Yes | IP address of your Loewe TV | - |
 | `mac` | Yes | MAC address for Wake-on-LAN (formats: AA:BB:CC:DD:EE:FF or AABBCCDDEEFF) | - |
 | `name` | No | Friendly name for the TV | "Loewe TV" |
+| `port` | No | Port number for SOAP API | 905 |
 
 ## Usage
 
@@ -138,15 +141,19 @@ data:
 - Home Assistant 2023.1 or newer
 - Loewe TV with SOAP API support (most models from 2010 onwards)
 - TV and Home Assistant must be on the same network
-- TV's SOAP API endpoint must be accessible at `http://<TV_IP>:8080/loewe/iControl/wsdl/iControlService.wsdl`
+- TV's SOAP API endpoint must be accessible (typically on port 905, older models may use port 8080)
+  - Default: `http://<TV_IP>:905/loewe/iControl/wsdl/iControlService.wsdl`
+  - Older models: `http://<TV_IP>:8080/loewe/iControl/wsdl/iControlService.wsdl`
 
 ## Troubleshooting
 
 ### TV Not Responding
 - Ensure the TV is on the same network as Home Assistant
 - Verify the IP address in your configuration is correct
+- **Check the port number**: Most Loewe TVs use port 905, but older models may use port 8080
 - Check if the SOAP API is enabled on your TV
-- Try accessing `http://<TV_IP>:8080/loewe/iControl/wsdl/iControlService.wsdl` in a browser
+- Try accessing `http://<TV_IP>:905/loewe/iControl/wsdl/iControlService.wsdl` in a browser
+  - If that doesn't work, try port 8080: `http://<TV_IP>:8080/loewe/iControl/wsdl/iControlService.wsdl`
 
 ### Wake-on-LAN Not Working
 - Ensure Wake-on-LAN is enabled in your TV settings (usually in Network or Power settings)
