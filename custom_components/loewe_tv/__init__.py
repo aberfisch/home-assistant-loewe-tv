@@ -13,7 +13,7 @@ PLATFORMS = [Platform.MEDIA_PLAYER]
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Set up the Loewe TV component from YAML configuration."""
+    """Set up the Loewe TV component."""
     _LOGGER.debug("Setting up Loewe TV integration")
     return True
 
