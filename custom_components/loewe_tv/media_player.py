@@ -10,6 +10,7 @@ import voluptuous as vol
 from wakeonlan import send_magic_packet
 
 from homeassistant.components.media_player import (
+    MediaPlayerDeviceClass,
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
     MediaPlayerState,
@@ -112,6 +113,11 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     def unique_id(self) -> str:
         """Return the unique ID of the device."""
         return self._attr_unique_id
+
+    @property
+    def device_class(self) -> MediaPlayerDeviceClass:
+        """Return the device class of the media player."""
+        return MediaPlayerDeviceClass.TV
 
     @property
     def state(self) -> MediaPlayerState:
