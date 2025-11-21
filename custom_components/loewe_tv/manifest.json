@@ -3,7 +3,6 @@
   "name": "Loewe TV",
   "documentation": "https://github.com/aberfisch/home-assistant-loewe-tv",
   "requirements": [
-    "zeep==4.3.2",
     "wakeonlan==3.1.0"
   ],
   "codeowners": ["@aberfisch"],

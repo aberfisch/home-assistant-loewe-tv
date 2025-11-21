@@ -1,12 +1,13 @@
-"""Support for Loewe TV media player."""
+"""Support for Loewe TV media player with authentication."""
 import asyncio
+import http.client
 import logging
+import random
 from typing import Any
+import xml.etree.ElementTree as ET
 
 import voluptuous as vol
 from wakeonlan import send_magic_packet
-from zeep import Client
-from zeep.exceptions import Fault, TransportError
 
 from homeassistant.components.media_player import (
     MediaPlayerEntity,
@@ -23,6 +24,14 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_PORT = 905
+NAMESPACE = "urn:loewe.de:RemoteTV:Tablet"
+
+# Loewe TV remote control keycodes (alphabet: l2700)
+RC_KEY_VOLUME_UP = 16
+RC_KEY_VOLUME_DOWN = 17
+RC_KEY_MUTE = 13
+RC_KEY_CHANNEL_UP = 32
+RC_KEY_CHANNEL_DOWN = 33
 
 PLATFORM_SCHEMA = cv.PLATFORM_SCHEMA.extend(
     {
@@ -66,7 +75,7 @@ async def async_setup_entry(
 
 
 class LoeweTVMediaPlayer(MediaPlayerEntity):
-    """Representation of a Loewe TV."""
+    """Representation of a Loewe TV with authentication support."""
 
     def __init__(
         self, hass: HomeAssistant, host: str, mac: str, name: str, port: int = DEFAULT_PORT, entry_id: str | None = None
@@ -81,8 +90,16 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         self._state = MediaPlayerState.OFF
         self._volume = 0
         self._is_volume_muted = False
-        self._wsdl_url = f"http://{host}:{port}/loewe_tablet_0001"
-        self._client = None
+        self._path = "/loewe_tablet_0001"
+        
+        # Authentication parameters
+        self._fcid = str(random.randint(10000000, 99999999))
+        self._client_id = None
+        self._device_type = "HomeAssistant"
+        self._device_name = "Home Assistant"
+        self._device_uuid = mac  # Use MAC as device UUID
+        self._requester_name = "Home Assistant Loewe TV Integration"
+        
         # Use MAC address as unique ID since it's unique per device
         self._attr_unique_id = mac.replace(":", "").lower()
 
@@ -125,101 +142,284 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             | MediaPlayerEntityFeature.PLAY_MEDIA
         )
 
-    def _send_soap_command(self, action: str, parameters: dict[str, Any] | None = None) -> Any:
-        """Send a SOAP command to the TV."""
+    def _send_soap_request(self, soap_body: str, soap_action: str) -> str | None:
+        """Send a raw SOAP request to the TV."""
+        headers = {
+            "Content-Type": "text/xml; charset=utf-8",
+            "SOAPAction": f'"{NAMESPACE}#{soap_action}"'
+        }
+        
         try:
-            # Create client if not cached or recreate on connection error
-            if self._client is None:
-                self._client = Client(self._wsdl_url)
-
-            service = self._client.service
-
-            if parameters:
-                result = getattr(service, action)(**parameters)
-            else:
-                result = getattr(service, action)()
-
-            _LOGGER.debug("SOAP command %s executed successfully", action)
-            return result
-
-        except TransportError as err:
-            _LOGGER.error("Connection error to Loewe TV at %s: %s", self._host, err)
-            self._state = MediaPlayerState.OFF
-            # Reset client on connection error to force recreation
-            self._client = None
-            return None
-        except Fault as err:
-            _LOGGER.error("SOAP fault when calling %s: %s", action, err)
-            return None
+            conn = http.client.HTTPConnection(self._host, self._port, timeout=5)
+            conn.request("POST", self._path, body=soap_body, headers=headers)
+            response = conn.getresponse()
+            resp_text = response.read().decode('utf-8', errors='ignore')
+            conn.close()
+            return resp_text
         except Exception as err:
-            _LOGGER.error("Unexpected error calling %s: %s", action, err)
-            # Reset client on unexpected error to force recreation
-            self._client = None
+            _LOGGER.error("Error sending SOAP request to %s:%s: %s", self._host, self._port, err)
             return None
+
+    def _request_access(self) -> bool:
+        """Request access to the TV and get ClientId."""
+        soap_body = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+            xmlns:ltv="{NAMESPACE}">
+          <soapenv:Header/>
+          <soapenv:Body>
+            <ltv:RequestAccess>
+              <ltv:fcid>{self._fcid}</ltv:fcid>
+              <ltv:DeviceType>{self._device_type}</ltv:DeviceType>
+              <ltv:DeviceName>{self._device_name}</ltv:DeviceName>
+              <ltv:DeviceUUID>{self._device_uuid}</ltv:DeviceUUID>
+              <ltv:RequesterName>{self._requester_name}</ltv:RequesterName>
+            </ltv:RequestAccess>
+          </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        
+        resp_text = self._send_soap_request(soap_body, "RequestAccess")
+        if not resp_text:
+            return False
+        
+        try:
+            root = ET.fromstring(resp_text)
+            ns = {"ltv": NAMESPACE}
+            status = root.find(".//ltv:AccessStatus", ns)
+            clientid = root.find(".//ltv:ClientId", ns)
+            
+            if status is not None and clientid is not None:
+                status_text = status.text
+                if status_text == "Accepted":
+                    self._client_id = clientid.text
+                    _LOGGER.info("Successfully authenticated with TV, ClientId: %s", self._client_id)
+                    return True
+                elif status_text == "Pending":
+                    _LOGGER.warning("Pairing pending - please accept the pairing request on your TV")
+                    return False
+                elif status_text == "Denied":
+                    _LOGGER.error("Pairing denied by TV")
+                    return False
+                else:
+                    _LOGGER.warning("Unexpected pairing status: %s", status_text)
+                    return False
+            else:
+                _LOGGER.error("Missing status or clientid in response")
+                return False
+        except Exception as err:
+            _LOGGER.error("Error parsing authentication response: %s", err)
+            return False
+
+    def _ensure_authenticated(self) -> bool:
+        """Ensure we have a valid ClientId, request access if needed."""
+        if self._client_id is not None:
+            return True
+        return self._request_access()
+
+    def _inject_rc_key(self, key_code: int) -> bool:
+        """Send a remote control key press/release sequence."""
+        if not self._ensure_authenticated():
+            _LOGGER.error("Not authenticated, cannot send RC key")
+            return False
+        
+        soap_body = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+            xmlns:ltv="{NAMESPACE}">
+          <soapenv:Header/>
+          <soapenv:Body>
+            <ltv:InjectRCKey>
+              <ltv:fcid>{self._fcid}</ltv:fcid>
+              <ltv:ClientId>{self._client_id}</ltv:ClientId>
+              <ltv:InputEventSequence>
+                <ltv:RCKeyEvent alphabet="l2700" value="{key_code}" mode="press"/>
+                <ltv:RCKeyEvent alphabet="l2700" value="{key_code}" mode="release"/>
+              </ltv:InputEventSequence>
+            </ltv:InjectRCKey>
+          </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        
+        resp_text = self._send_soap_request(soap_body, "InjectRCKey")
+        return resp_text is not None
+
+    def _get_volume(self) -> int | None:
+        """Get current volume level."""
+        if not self._ensure_authenticated():
+            return None
+        
+        soap_body = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+            xmlns:ltv="{NAMESPACE}">
+          <soapenv:Header/>
+          <soapenv:Body>
+            <ltv:GetVolume>
+              <ltv:fcid>{self._fcid}</ltv:fcid>
+              <ltv:ClientId>{self._client_id}</ltv:ClientId>
+            </ltv:GetVolume>
+          </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        
+        resp_text = self._send_soap_request(soap_body, "GetVolume")
+        if not resp_text:
+            return None
+        
+        try:
+            root = ET.fromstring(resp_text)
+            ns = {"ltv": NAMESPACE}
+            value = root.find(".//ltv:Value", ns)
+            if value is not None and value.text:
+                return int(value.text)
+        except Exception as err:
+            _LOGGER.error("Error parsing volume response: %s", err)
+        return None
+
+    def _set_volume(self, volume: int) -> bool:
+        """Set volume level (0-100)."""
+        if not self._ensure_authenticated():
+            return False
+        
+        soap_body = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+            xmlns:ltv="{NAMESPACE}">
+          <soapenv:Header/>
+          <soapenv:Body>
+            <ltv:SetVolume>
+              <ltv:fcid>{self._fcid}</ltv:fcid>
+              <ltv:ClientId>{self._client_id}</ltv:ClientId>
+              <ltv:Value>{volume}</ltv:Value>
+            </ltv:SetVolume>
+          </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        
+        resp_text = self._send_soap_request(soap_body, "SetVolume")
+        return resp_text is not None
+
+    def _get_mute(self) -> bool | None:
+        """Get current mute status."""
+        if not self._ensure_authenticated():
+            return None
+        
+        soap_body = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+            xmlns:ltv="{NAMESPACE}">
+          <soapenv:Header/>
+          <soapenv:Body>
+            <ltv:GetMute>
+              <ltv:fcid>{self._fcid}</ltv:fcid>
+              <ltv:ClientId>{self._client_id}</ltv:ClientId>
+            </ltv:GetMute>
+          </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        
+        resp_text = self._send_soap_request(soap_body, "GetMute")
+        if not resp_text:
+            return None
+        
+        try:
+            root = ET.fromstring(resp_text)
+            ns = {"ltv": NAMESPACE}
+            value = root.find(".//ltv:Value", ns)
+            if value is not None and value.text:
+                return value.text.lower() == "true" or value.text == "1"
+        except Exception as err:
+            _LOGGER.error("Error parsing mute response: %s", err)
+        return None
+
+    def _set_mute(self, mute: bool) -> bool:
+        """Set mute status."""
+        if not self._ensure_authenticated():
+            return False
+        
+        mute_value = "true" if mute else "false"
+        soap_body = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+            xmlns:ltv="{NAMESPACE}">
+          <soapenv:Header/>
+          <soapenv:Body>
+            <ltv:SetMute>
+              <ltv:fcid>{self._fcid}</ltv:fcid>
+              <ltv:ClientId>{self._client_id}</ltv:ClientId>
+              <ltv:Value>{mute_value}</ltv:Value>
+            </ltv:SetMute>
+          </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        
+        resp_text = self._send_soap_request(soap_body, "SetMute")
+        return resp_text is not None
+
+    def _standby(self) -> bool:
+        """Put TV in standby mode."""
+        if not self._ensure_authenticated():
+            return False
+        
+        soap_body = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+            xmlns:ltv="{NAMESPACE}">
+          <soapenv:Header/>
+          <soapenv:Body>
+            <ltv:Standby>
+              <ltv:fcid>{self._fcid}</ltv:fcid>
+              <ltv:ClientId>{self._client_id}</ltv:ClientId>
+            </ltv:Standby>
+          </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        
+        resp_text = self._send_soap_request(soap_body, "Standby")
+        return resp_text is not None
+
+    def _zap_to_media(self, player: str, locator: str) -> bool:
+        """Switch to a specific media channel."""
+        if not self._ensure_authenticated():
+            return False
+        
+        soap_body = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+            xmlns:ltv="{NAMESPACE}">
+          <soapenv:Header/>
+          <soapenv:Body>
+            <ltv:ZapToMedia>
+              <ltv:fcid>{self._fcid}</ltv:fcid>
+              <ltv:ClientId>{self._client_id}</ltv:ClientId>
+              <ltv:Player>{player}</ltv:Player>
+              <ltv:Locator>{locator}</ltv:Locator>
+            </ltv:ZapToMedia>
+          </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        
+        resp_text = self._send_soap_request(soap_body, "ZapToMedia")
+        return resp_text is not None
 
     async def async_update(self) -> None:
         """Retrieve the latest data from the TV."""
         _LOGGER.debug("Updating Loewe TV state")
 
         # Try to get volume to check if TV is reachable/on
-        # The TV responds to GetVolume when it's on
-        volume_result = await self._hass.async_add_executor_job(
-            self._send_soap_command, "GetVolume"
-        )
-
-        if volume_result is None:
-            # TV is not reachable
+        volume = await self._hass.async_add_executor_job(self._get_volume)
+        
+        if volume is None:
+            # TV is not reachable or authentication failed
             self._state = MediaPlayerState.OFF
+            # Reset client_id to force re-authentication on next successful connection
+            self._client_id = None
             return
 
         # TV is reachable, assume it's ON
         self._state = MediaPlayerState.ON
+        self._volume = volume
 
-        # Get volume and mute information concurrently
-        mute_task = self._hass.async_add_executor_job(
-            self._send_soap_command, "GetMute"
-        )
-
-        mute_result = await mute_task
-
-        # Parse volume response
-        if volume_result is not None:
-            try:
-                # Extract Value from response
-                if hasattr(volume_result, 'Value'):
-                    volume = int(volume_result.Value)
-                    if 0 <= volume <= 100:
-                        self._volume = volume
-                    else:
-                        _LOGGER.error("Volume value out of range (0-100): %s", volume)
-                else:
-                    _LOGGER.debug("Volume response: %s", volume_result)
-            except (ValueError, TypeError, AttributeError) as err:
-                _LOGGER.error("Invalid volume value received: %s (%s)", volume_result, err)
-
-        # Parse mute response
-        if mute_result is not None:
-            try:
-                # Extract Value from response
-                if hasattr(mute_result, 'Value'):
-                    self._is_volume_muted = bool(mute_result.Value)
-                else:
-                    _LOGGER.debug("Mute response: %s", mute_result)
-            except (ValueError, TypeError, AttributeError) as err:
-                _LOGGER.error("Invalid mute value received: %s (%s)", mute_result, err)
+        # Get mute status
+        mute = await self._hass.async_add_executor_job(self._get_mute)
+        if mute is not None:
+            self._is_volume_muted = mute
 
     async def async_turn_on(self) -> None:
         """Turn the TV on using Wake-on-LAN."""
         _LOGGER.info("Turning on Loewe TV at %s using Wake-on-LAN", self._host)
         try:
             # Calculate broadcast address from host IP
-            # Most Loewe TVs are on /24 networks, so we can derive the broadcast
             ip_parts = self._host.split('.')
             if len(ip_parts) == 4:
                 # Use the broadcast address for the /24 network
                 broadcast_addr = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.255"
                 _LOGGER.debug("Sending WOL packet to MAC %s via broadcast %s", self._mac, broadcast_addr)
-                # Use lambda to pass keyword argument
                 await self._hass.async_add_executor_job(
                     lambda: send_magic_packet(self._mac, ip_address=broadcast_addr)
                 )
@@ -235,9 +435,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     async def async_turn_off(self) -> None:
         """Turn the TV off."""
         _LOGGER.info("Turning off Loewe TV at %s", self._host)
-        await self._hass.async_add_executor_job(
-            self._send_soap_command, "Standby"
-        )
+        await self._hass.async_add_executor_job(self._standby)
 
     async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, range 0..1."""
@@ -247,48 +445,32 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
 
         volume_percent = int(volume * 100)
         _LOGGER.debug("Setting volume to %d%%", volume_percent)
-        await self._hass.async_add_executor_job(
-            self._send_soap_command, "SetVolume", {"Value": volume_percent}
-        )
+        await self._hass.async_add_executor_job(self._set_volume, volume_percent)
 
     async def async_volume_up(self) -> None:
         """Increase volume by one step."""
         _LOGGER.debug("Increasing volume")
-        # Volume Up key code (typical RC code for volume up is 16)
-        await self._hass.async_add_executor_job(
-            self._send_soap_command, "InjectRCKey", {"alphabet": "loewe", "value": 16, "mode": "press"}
-        )
+        await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_VOLUME_UP)
 
     async def async_volume_down(self) -> None:
         """Decrease volume by one step."""
         _LOGGER.debug("Decreasing volume")
-        # Volume Down key code (typical RC code for volume down is 17)
-        await self._hass.async_add_executor_job(
-            self._send_soap_command, "InjectRCKey", {"alphabet": "loewe", "value": 17, "mode": "press"}
-        )
+        await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_VOLUME_DOWN)
 
     async def async_mute_volume(self, mute: bool) -> None:
         """Mute or unmute the volume."""
         _LOGGER.debug("Setting mute to %s", mute)
-        await self._hass.async_add_executor_job(
-            self._send_soap_command, "SetMute", {"Value": int(mute)}
-        )
+        await self._hass.async_add_executor_job(self._set_mute, mute)
 
     async def async_media_next_track(self) -> None:
         """Switch to the next channel."""
         _LOGGER.debug("Switching to next channel")
-        # Channel Up key code (typical RC code for channel up is 32)
-        await self._hass.async_add_executor_job(
-            self._send_soap_command, "InjectRCKey", {"alphabet": "loewe", "value": 32, "mode": "press"}
-        )
+        await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_CHANNEL_UP)
 
     async def async_media_previous_track(self) -> None:
         """Switch to the previous channel."""
         _LOGGER.debug("Switching to previous channel")
-        # Channel Down key code (typical RC code for channel down is 33)
-        await self._hass.async_add_executor_job(
-            self._send_soap_command, "InjectRCKey", {"alphabet": "loewe", "value": 33, "mode": "press"}
-        )
+        await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_CHANNEL_DOWN)
 
     async def async_play_media(self, media_type: str, media_id: str, **kwargs: Any) -> None:
         """Switch to a specific channel by number or locator."""
@@ -298,10 +480,9 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 if 0 <= channel <= 999:
                     _LOGGER.info("Switching to channel %d", channel)
                     # Use ZapToMedia with channel locator format
-                    # Channel format is typically "dvb://channel_number"
                     locator = f"dvb://{channel}"
                     await self._hass.async_add_executor_job(
-                        self._send_soap_command, "ZapToMedia", {"Player": "MainVideo", "Locator": locator}
+                        self._zap_to_media, "MainVideo", locator
                     )
                 else:
                     _LOGGER.error("Channel number must be between 0 and 999")

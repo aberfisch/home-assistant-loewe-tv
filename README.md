@@ -69,6 +69,23 @@ media_player:
 | `name` | No | Friendly name for the TV | "Loewe TV" |
 | `port` | No | Port number for SOAP API | 905 |
 
+### TV Pairing (First Time Setup)
+
+**Important:** When you first set up the integration, your Loewe TV will display a pairing request on screen.
+
+1. After adding the integration in Home Assistant, look at your TV screen
+2. You should see a pairing request from "Home Assistant"
+3. **Accept the pairing request on your TV** using your remote control
+4. The integration will automatically connect after you accept
+
+The pairing only needs to be done once. The integration will remember the authentication and reconnect automatically in the future.
+
+**Note:** If you don't see a pairing request:
+- Make sure your TV is turned on
+- Check that the IP address is correct
+- Verify that port 905 is accessible (some models may use 8080)
+- Check Home Assistant logs for any error messages
+
 ## Usage
 
 ### Basic Controls
