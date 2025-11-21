@@ -34,7 +34,21 @@ A custom Home Assistant integration for controlling Loewe Television sets via th
 
 ## Configuration
 
-Add the following to your `configuration.yaml`:
+### Option 1: UI Configuration (Recommended)
+
+1. Go to **Settings** → **Devices & Services** in Home Assistant
+2. Click the **+ ADD INTEGRATION** button
+3. Search for "Loewe TV"
+4. Follow the setup wizard:
+   - Enter the IP address of your Loewe TV
+   - Enter the MAC address for Wake-on-LAN
+   - Optionally customize the device name
+
+You can later modify these settings by clicking **CONFIGURE** on the Loewe TV integration card.
+
+### Option 2: YAML Configuration
+
+Alternatively, add the following to your `configuration.yaml`:
 
 ```yaml
 media_player:
@@ -49,7 +63,7 @@ media_player:
 | Variable | Required | Description | Default |
 |----------|----------|-------------|---------|
 | `host` | Yes | IP address of your Loewe TV | - |
-| `mac` | Yes | MAC address for Wake-on-LAN | - |
+| `mac` | Yes | MAC address for Wake-on-LAN (formats: AA:BB:CC:DD:EE:FF or AABBCCDDEEFF) | - |
 | `name` | No | Friendly name for the TV | "Loewe TV" |
 
 ## Usage

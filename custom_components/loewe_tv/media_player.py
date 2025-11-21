@@ -13,15 +13,16 @@ from homeassistant.components.media_player import (
     MediaPlayerEntityFeature,
     MediaPlayerState,
 )
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_MAC, CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
-_LOGGER = logging.getLogger(__name__)
+from .const import DOMAIN
 
-DOMAIN = "loewe_tv"
+_LOGGER = logging.getLogger(__name__)
 
 PLATFORM_SCHEMA = cv.PLATFORM_SCHEMA.extend(
     {
@@ -38,7 +39,7 @@ async def async_setup_platform(
     async_add_entities: AddEntitiesCallback,
     discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
-    """Set up the Loewe TV platform."""
+    """Set up the Loewe TV platform from YAML configuration."""
     host = config[CONF_HOST]
     mac = config[CONF_MAC]
     name = config[CONF_NAME]
@@ -47,17 +48,32 @@ async def async_setup_platform(
     async_add_entities([LoeweTVMediaPlayer(hass, host, mac, name)], True)
 
 
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up Loewe TV from a config entry."""
+    host = entry.data[CONF_HOST]
+    mac = entry.data[CONF_MAC]
+    name = entry.data.get(CONF_NAME, "Loewe TV")
+
+    _LOGGER.debug("Setting up Loewe TV at %s from config entry", host)
+    async_add_entities([LoeweTVMediaPlayer(hass, host, mac, name, entry.entry_id)], True)
+
+
 class LoeweTVMediaPlayer(MediaPlayerEntity):
     """Representation of a Loewe TV."""
 
     def __init__(
-        self, hass: HomeAssistant, host: str, mac: str, name: str
+        self, hass: HomeAssistant, host: str, mac: str, name: str, entry_id: str | None = None
     ) -> None:
         """Initialize the Loewe TV device."""
         self._hass = hass
         self._host = host
         self._mac = mac
         self._name = name
+        self._entry_id = entry_id
         self._state = MediaPlayerState.OFF
         self._volume = 0
         self._is_volume_muted = False
