@@ -167,12 +167,19 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
 
             if volume_result is not None and not isinstance(volume_result, Exception):
                 try:
-                    self._volume = int(volume_result)
+                    volume = int(volume_result)
+                    if 0 <= volume <= 100:
+                        self._volume = volume
+                    else:
+                        _LOGGER.error("Volume value out of range (0-100): %s", volume)
                 except (ValueError, TypeError) as err:
                     _LOGGER.error("Invalid volume value received: %s (%s)", volume_result, err)
 
             if mute_result is not None and not isinstance(mute_result, Exception):
-                self._is_volume_muted = mute_result
+                try:
+                    self._is_volume_muted = bool(mute_result)
+                except (ValueError, TypeError) as err:
+                    _LOGGER.error("Invalid mute value received: %s (%s)", mute_result, err)
 
     async def async_turn_on(self) -> None:
         """Turn the TV on using Wake-on-LAN."""
@@ -191,6 +198,10 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
 
     async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, range 0..1."""
+        if not 0.0 <= volume <= 1.0:
+            _LOGGER.error("Volume must be between 0.0 and 1.0, got: %s", volume)
+            return
+
         volume_percent = int(volume * 100)
         _LOGGER.debug("Setting volume to %d%%", volume_percent)
         await self._hass.async_add_executor_job(
