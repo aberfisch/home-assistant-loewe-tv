@@ -1,4 +1,5 @@
 """Support for Loewe TV media player."""
+import asyncio
 import logging
 from typing import Any
 
@@ -93,6 +94,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             | MediaPlayerEntityFeature.VOLUME_MUTE
             | MediaPlayerEntityFeature.NEXT_TRACK
             | MediaPlayerEntityFeature.PREVIOUS_TRACK
+            | MediaPlayerEntityFeature.PLAY_MEDIA
         )
 
     def _send_soap_command(self, action: str, parameters: dict[str, Any] | None = None) -> Any:
@@ -120,12 +122,14 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             _LOGGER.error("Unexpected error calling %s: %s", action, err)
             return None
 
-    def update(self) -> None:
+    async def async_update(self) -> None:
         """Retrieve the latest data from the TV."""
         _LOGGER.debug("Updating Loewe TV state")
         
-        # Try to get power state
-        result = self._send_soap_command("getPowerState")
+        # Run SOAP commands in executor to avoid blocking
+        result = await self._hass.async_add_executor_job(
+            self._send_soap_command, "getPowerState"
+        )
         
         if result is None:
             # TV is not reachable
@@ -142,70 +146,90 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         
         # Get volume information if TV is on
         if self._state == MediaPlayerState.ON:
-            volume_result = self._send_soap_command("getVolume")
+            volume_result = await self._hass.async_add_executor_job(
+                self._send_soap_command, "getVolume"
+            )
             if volume_result is not None:
                 self._volume = int(volume_result)
             
-            mute_result = self._send_soap_command("getMute")
+            mute_result = await self._hass.async_add_executor_job(
+                self._send_soap_command, "getMute"
+            )
             if mute_result is not None:
                 self._is_volume_muted = mute_result
 
-    def turn_on(self) -> None:
+    async def async_turn_on(self) -> None:
         """Turn the TV on using Wake-on-LAN."""
         _LOGGER.info("Turning on Loewe TV at %s using Wake-on-LAN", self._host)
         try:
-            send_magic_packet(self._mac)
+            await self._hass.async_add_executor_job(send_magic_packet, self._mac)
             self._state = MediaPlayerState.ON
         except Exception as err:
             _LOGGER.error("Failed to send Wake-on-LAN packet: %s", err)
 
-    def turn_off(self) -> None:
+    async def async_turn_off(self) -> None:
         """Turn the TV off."""
         _LOGGER.info("Turning off Loewe TV at %s", self._host)
-        self._send_soap_command("setPowerState", {"state": "OFF"})
+        await self._hass.async_add_executor_job(
+            self._send_soap_command, "setPowerState", {"state": "OFF"}
+        )
         self._state = MediaPlayerState.OFF
 
-    def set_volume_level(self, volume: float) -> None:
+    async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, range 0..1."""
         volume_percent = int(volume * 100)
         _LOGGER.debug("Setting volume to %d%%", volume_percent)
-        self._send_soap_command("setVolume", {"volume": volume_percent})
+        await self._hass.async_add_executor_job(
+            self._send_soap_command, "setVolume", {"volume": volume_percent}
+        )
         self._volume = volume_percent
 
-    def volume_up(self) -> None:
+    async def async_volume_up(self) -> None:
         """Increase volume by one step."""
         _LOGGER.debug("Increasing volume")
-        self._send_soap_command("volumeUp")
+        await self._hass.async_add_executor_job(
+            self._send_soap_command, "volumeUp"
+        )
 
-    def volume_down(self) -> None:
+    async def async_volume_down(self) -> None:
         """Decrease volume by one step."""
         _LOGGER.debug("Decreasing volume")
-        self._send_soap_command("volumeDown")
+        await self._hass.async_add_executor_job(
+            self._send_soap_command, "volumeDown"
+        )
 
-    def mute_volume(self, mute: bool) -> None:
+    async def async_mute_volume(self, mute: bool) -> None:
         """Mute or unmute the volume."""
         _LOGGER.debug("Setting mute to %s", mute)
-        self._send_soap_command("setMute", {"mute": mute})
+        await self._hass.async_add_executor_job(
+            self._send_soap_command, "setMute", {"mute": mute}
+        )
         self._is_volume_muted = mute
 
-    def media_next_track(self) -> None:
+    async def async_media_next_track(self) -> None:
         """Switch to the next channel."""
         _LOGGER.debug("Switching to next channel")
-        self._send_soap_command("channelUp")
+        await self._hass.async_add_executor_job(
+            self._send_soap_command, "channelUp"
+        )
 
-    def media_previous_track(self) -> None:
+    async def async_media_previous_track(self) -> None:
         """Switch to the previous channel."""
         _LOGGER.debug("Switching to previous channel")
-        self._send_soap_command("channelDown")
+        await self._hass.async_add_executor_job(
+            self._send_soap_command, "channelDown"
+        )
 
-    def play_media(self, media_type: str, media_id: str, **kwargs: Any) -> None:
+    async def async_play_media(self, media_type: str, media_id: str, **kwargs: Any) -> None:
         """Switch to a specific channel by number."""
         if media_type == "channel":
             try:
                 channel = int(media_id)
                 if 0 <= channel <= 999:
                     _LOGGER.info("Switching to channel %d", channel)
-                    self._send_soap_command("setChannel", {"channel": channel})
+                    await self._hass.async_add_executor_job(
+                        self._send_soap_command, "setChannel", {"channel": channel}
+                    )
                 else:
                     _LOGGER.error("Channel number must be between 0 and 999")
             except ValueError:
