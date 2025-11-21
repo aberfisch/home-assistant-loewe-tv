@@ -1,0 +1,15 @@
+# Example configuration for Loewe TV integration
+# Add this to your configuration.yaml file
+
+media_player:
+  - platform: loewe_tv
+    host: 192.168.1.100  # Replace with your Loewe TV IP address
+    mac: "AA:BB:CC:DD:EE:FF"  # Replace with your Loewe TV MAC address
+    name: "Living Room TV"  # Optional: Custom name for your TV
+    port: 905  # Optional: Port number (default: 905, older models may use 8080)
+
+# Optional: Enable debug logging
+# logger:
+#   default: info
+#   logs:
+#     custom_components.loewe_tv: debug

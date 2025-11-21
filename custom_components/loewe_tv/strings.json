@@ -1,0 +1,41 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Loewe TV",
+        "description": "Enter the connection details for your Loewe TV",
+        "data": {
+          "host": "IP Address",
+          "mac": "MAC Address",
+          "name": "Name",
+          "port": "Port"
+        }
+      }
+    },
+    "error": {
+      "invalid_mac": "Invalid MAC address format. Please use format: AA:BB:CC:DD:EE:FF or AABBCCDDEEFF",
+      "unknown": "Unexpected error occurred"
+    },
+    "abort": {
+      "already_configured": "Device is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configure Loewe TV",
+        "description": "Update the connection details for your Loewe TV",
+        "data": {
+          "host": "IP Address",
+          "mac": "MAC Address",
+          "name": "Name",
+          "port": "Port"
+        }
+      }
+    },
+    "error": {
+      "invalid_mac": "Invalid MAC address format. Please use format: AA:BB:CC:DD:EE:FF or AABBCCDDEEFF",
+      "unknown": "Unexpected error occurred"
+    }
+  }
+}
