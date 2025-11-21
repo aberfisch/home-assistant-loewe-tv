@@ -1,0 +1,12 @@
+{
+  "domain": "loewe_tv",
+  "name": "Loewe TV",
+  "documentation": "https://github.com/aberfisch/home-assistant-loewe-tv",
+  "requirements": [
+    "zeep==4.2.1",
+    "wakeonlan==3.1.0"
+  ],
+  "codeowners": ["@aberfisch"],
+  "version": "1.0.0",
+  "iot_class": "local_polling"
+}
