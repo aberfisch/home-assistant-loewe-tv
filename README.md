@@ -142,8 +142,8 @@ data:
 - Loewe TV with SOAP API support (most models from 2010 onwards)
 - TV and Home Assistant must be on the same network
 - TV's SOAP API endpoint must be accessible (typically on port 905, older models may use port 8080)
-  - Default: `http://<TV_IP>:905/loewe/iControl/wsdl/iControlService.wsdl`
-  - Older models: `http://<TV_IP>:8080/loewe/iControl/wsdl/iControlService.wsdl`
+  - Default: `http://<TV_IP>:905/loewe_tablet_0001`
+  - Older models may use: `http://<TV_IP>:8080/loewe_tablet_0001`
 
 ## Troubleshooting
 
@@ -152,8 +152,8 @@ data:
 - Verify the IP address in your configuration is correct
 - **Check the port number**: Most Loewe TVs use port 905, but older models may use port 8080
 - Check if the SOAP API is enabled on your TV
-- Try accessing `http://<TV_IP>:905/loewe/iControl/wsdl/iControlService.wsdl` in a browser
-  - If that doesn't work, try port 8080: `http://<TV_IP>:8080/loewe/iControl/wsdl/iControlService.wsdl`
+- Try accessing `http://<TV_IP>:905/loewe_tablet_0001` in a browser
+  - If that doesn't work, try port 8080: `http://<TV_IP>:8080/loewe_tablet_0001`
 
 ### Wake-on-LAN Not Working
 - Ensure Wake-on-LAN is enabled in your TV settings (usually in Network or Power settings)

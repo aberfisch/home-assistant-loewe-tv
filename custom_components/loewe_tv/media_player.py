@@ -81,7 +81,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         self._state = MediaPlayerState.OFF
         self._volume = 0
         self._is_volume_muted = False
-        self._wsdl_url = f"http://{host}:{port}/loewe/iControl/wsdl/iControlService.wsdl"
+        self._wsdl_url = f"http://{host}:{port}/loewe_tablet_0001"
         self._client = None
         # Use MAC address as unique ID since it's unique per device
         self._attr_unique_id = mac.replace(":", "").lower()
