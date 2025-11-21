@@ -206,7 +206,20 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         """Turn the TV on using Wake-on-LAN."""
         _LOGGER.info("Turning on Loewe TV at %s using Wake-on-LAN", self._host)
         try:
-            await self._hass.async_add_executor_job(send_magic_packet, self._mac)
+            # Calculate broadcast address from host IP
+            # Most Loewe TVs are on /24 networks, so we can derive the broadcast
+            ip_parts = self._host.split('.')
+            if len(ip_parts) == 4:
+                # Use the broadcast address for the /24 network
+                broadcast_addr = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.255"
+                _LOGGER.debug("Sending WOL packet to MAC %s via broadcast %s", self._mac, broadcast_addr)
+                await self._hass.async_add_executor_job(
+                    send_magic_packet, self._mac, ip_address=broadcast_addr
+                )
+            else:
+                # Fallback to sending without broadcast address
+                _LOGGER.debug("Sending WOL packet to MAC %s", self._mac)
+                await self._hass.async_add_executor_job(send_magic_packet, self._mac)
         except Exception as err:
             _LOGGER.error("Failed to send Wake-on-LAN packet: %s", err)
 

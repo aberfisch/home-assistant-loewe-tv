@@ -149,9 +149,12 @@ data:
 - Try accessing `http://<TV_IP>:8080/loewe/iControl/wsdl/iControlService.wsdl` in a browser
 
 ### Wake-on-LAN Not Working
-- Ensure Wake-on-LAN is enabled in your TV settings
-- Verify the MAC address in your configuration is correct
-- Make sure your network allows broadcast packets
+- Ensure Wake-on-LAN is enabled in your TV settings (usually in Network or Power settings)
+- Verify the MAC address in your configuration is correct (check your router or TV network settings)
+- Make sure your network allows broadcast packets (some routers block WOL across VLANs)
+- The TV and Home Assistant must be on the same local network segment
+- Some Loewe TVs require the TV to be in "Standby" mode rather than fully "Off" for WOL to work
+- Try the integration's turn_on command - it automatically sends WOL packets to the broadcast address
 
 ### Check Logs
 Enable debug logging to troubleshoot issues:
