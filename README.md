@@ -5,21 +5,21 @@ A custom Home Assistant integration for controlling Loewe Television sets via th
 ## Features
 
 ### Power Management
-- Check power status (ON, OFF, or Standby)
+- Check power status (TV reachable/not reachable)
 - Turn TV on using Wake-on-LAN
-- Turn TV off via SOAP command
+- Turn TV to standby via SOAP command
 - Automatic state detection
 
 ### Volume Control
 - Get current volume level
 - Set volume to specific level (0-100)
-- Volume up/down controls
+- Volume up/down controls via remote control keys
 - Mute and unmute functionality
 
 ### Channel Control
-- Switch to next channel (Channel Up)
-- Switch to previous channel (Channel Down)
-- Switch to specific channel by number (0-999)
+- Switch to next channel (Channel Up) via remote control keys
+- Switch to previous channel (Channel Down) via remote control keys
+- Switch to specific channel by number using ZapToMedia
 
 ## Installation
 
@@ -183,6 +183,22 @@ For detailed information about the Loewe TV SOAP API, refer to the official docu
 - [Loewe TV API Documentation (PDF)](https://github.com/meaumeau/Loewe_TV_API/blob/main/Documention/remote_api_1.0.47_Loewe.pdf)
 
 This documentation provides comprehensive details about available SOAP methods, parameters, and TV control capabilities.
+
+### SOAP Operations Used
+
+This integration uses the following SOAP operations from the Loewe TV WSDL (`http://<TV_IP>:<PORT>/loewe_tablet_0001`):
+
+- **GetVolume** - Retrieves current volume level (0-100)
+- **SetVolume** - Sets volume level
+- **GetMute** - Retrieves current mute status
+- **SetMute** - Sets mute status
+- **Standby** - Puts TV into standby mode
+- **InjectRCKey** - Sends remote control key presses for:
+  - Volume Up (key 16)
+  - Volume Down (key 17)
+  - Channel Up (key 32)
+  - Channel Down (key 33)
+- **ZapToMedia** - Switches to a specific channel using media locator
 
 ## License
 
