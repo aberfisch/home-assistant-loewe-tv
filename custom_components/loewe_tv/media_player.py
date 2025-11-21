@@ -53,10 +53,10 @@ async def async_setup_platform(
     """Set up the Loewe TV platform from YAML configuration."""
     host = config[CONF_HOST]
     mac = config[CONF_MAC]
-    name = config[CONF_NAME]
-    port = config[CONF_PORT]
+    name = config.get(CONF_NAME, "Loewe TV")
+    port = config.get(CONF_PORT, DEFAULT_PORT)
 
-    _LOGGER.debug("Setting up Loewe TV at %s:%s", host, port)
+    _LOGGER.debug("Setting up Loewe TV at %s:%s from YAML configuration", host, port)
     async_add_entities([LoeweTVMediaPlayer(hass, host, mac, name, port)], True)
 
 
