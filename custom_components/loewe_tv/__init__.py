@@ -4,6 +4,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN
 
@@ -12,9 +13,11 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.MEDIA_PLAYER]
 
 
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Loewe TV component from YAML configuration."""
-    _LOGGER.debug("Setting up Loewe TV integration")
+    _LOGGER.debug("Setting up Loewe TV integration with config: %s", config.get(DOMAIN, "No domain config"))
+    # Store the config for platform setup if needed
+    hass.data.setdefault(DOMAIN, {})
     return True
 
 
