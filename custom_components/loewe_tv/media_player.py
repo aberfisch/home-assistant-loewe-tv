@@ -133,17 +133,17 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     async def async_update(self) -> None:
         """Retrieve the latest data from the TV."""
         _LOGGER.debug("Updating Loewe TV state")
-        
+
         # Run SOAP commands in executor to avoid blocking
         result = await self._hass.async_add_executor_job(
             self._send_soap_command, "getPowerState"
         )
-        
+
         if result is None:
             # TV is not reachable
             self._state = MediaPlayerState.OFF
             return
-        
+
         # Parse power state
         if result == "ON":
             self._state = MediaPlayerState.ON
@@ -151,19 +151,27 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             self._state = MediaPlayerState.STANDBY
         else:
             self._state = MediaPlayerState.OFF
-        
-        # Get volume information if TV is on
+
+        # Get volume information concurrently if TV is on
         if self._state == MediaPlayerState.ON:
-            volume_result = await self._hass.async_add_executor_job(
+            volume_task = self._hass.async_add_executor_job(
                 self._send_soap_command, "getVolume"
             )
-            if volume_result is not None:
-                self._volume = int(volume_result)
-            
-            mute_result = await self._hass.async_add_executor_job(
+            mute_task = self._hass.async_add_executor_job(
                 self._send_soap_command, "getMute"
             )
-            if mute_result is not None:
+
+            volume_result, mute_result = await asyncio.gather(
+                volume_task, mute_task, return_exceptions=True
+            )
+
+            if volume_result is not None and not isinstance(volume_result, Exception):
+                try:
+                    self._volume = int(volume_result)
+                except (ValueError, TypeError) as err:
+                    _LOGGER.error("Invalid volume value received: %s (%s)", volume_result, err)
+
+            if mute_result is not None and not isinstance(mute_result, Exception):
                 self._is_volume_muted = mute_result
 
     async def async_turn_on(self) -> None:
