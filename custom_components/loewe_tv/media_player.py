@@ -62,6 +62,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         self._volume = 0
         self._is_volume_muted = False
         self._wsdl_url = f"http://{host}:8080/loewe/iControl/wsdl/iControlService.wsdl"
+        self._client = None
 
     @property
     def name(self) -> str:
@@ -100,8 +101,11 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     def _send_soap_command(self, action: str, parameters: dict[str, Any] | None = None) -> Any:
         """Send a SOAP command to the TV."""
         try:
-            client = Client(self._wsdl_url)
-            service = client.service
+            # Create client if not cached or recreate on connection error
+            if self._client is None:
+                self._client = Client(self._wsdl_url)
+
+            service = self._client.service
 
             if parameters:
                 result = getattr(service, action)(**parameters)
@@ -114,12 +118,16 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         except TransportError as err:
             _LOGGER.error("Connection error to Loewe TV at %s: %s", self._host, err)
             self._state = MediaPlayerState.OFF
+            # Reset client on connection error to force recreation
+            self._client = None
             return None
         except Fault as err:
             _LOGGER.error("SOAP fault when calling %s: %s", action, err)
             return None
         except Exception as err:
             _LOGGER.error("Unexpected error calling %s: %s", action, err)
+            # Reset client on unexpected error to force recreation
+            self._client = None
             return None
 
     async def async_update(self) -> None:
