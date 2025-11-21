@@ -3,7 +3,6 @@ import logging
 from typing import Any
 
 import voluptuous as vol
-from wakeonlan import send_magic_packet
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_MAC, CONF_NAME
