@@ -20,8 +20,6 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
-from .const import DOMAIN
-
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORM_SCHEMA = cv.PLATFORM_SCHEMA.extend(
