@@ -102,15 +102,15 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         try:
             client = Client(self._wsdl_url)
             service = client.service
-            
+
             if parameters:
                 result = getattr(service, action)(**parameters)
             else:
                 result = getattr(service, action)()
-            
+
             _LOGGER.debug("SOAP command %s executed successfully", action)
             return result
-            
+
         except TransportError as err:
             _LOGGER.error("Connection error to Loewe TV at %s: %s", self._host, err)
             self._state = MediaPlayerState.OFF
@@ -163,7 +163,6 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         _LOGGER.info("Turning on Loewe TV at %s using Wake-on-LAN", self._host)
         try:
             await self._hass.async_add_executor_job(send_magic_packet, self._mac)
-            self._state = MediaPlayerState.ON
         except Exception as err:
             _LOGGER.error("Failed to send Wake-on-LAN packet: %s", err)
 
@@ -173,7 +172,6 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         await self._hass.async_add_executor_job(
             self._send_soap_command, "setPowerState", {"state": "OFF"}
         )
-        self._state = MediaPlayerState.OFF
 
     async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, range 0..1."""
@@ -182,7 +180,6 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         await self._hass.async_add_executor_job(
             self._send_soap_command, "setVolume", {"volume": volume_percent}
         )
-        self._volume = volume_percent
 
     async def async_volume_up(self) -> None:
         """Increase volume by one step."""
@@ -204,7 +201,6 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         await self._hass.async_add_executor_job(
             self._send_soap_command, "setMute", {"mute": mute}
         )
-        self._is_volume_muted = mute
 
     async def async_media_next_track(self) -> None:
         """Switch to the next channel."""
