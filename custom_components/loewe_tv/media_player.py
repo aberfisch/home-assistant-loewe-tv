@@ -495,7 +495,11 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         await asyncio.sleep(WOL_WAIT_TIME)
         # Send power RC key to ensure TV turns on from standby
         _LOGGER.debug("Sending power RC key to turn on TV")
-        await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_POWER, True)
+        result = await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_POWER, True)
+        if result:
+            _LOGGER.debug("Power RC key sent successfully")
+        else:
+            _LOGGER.warning("Failed to send power RC key, TV may require manual power on")
 
     async def async_turn_off(self) -> None:
         """Turn the TV off."""
