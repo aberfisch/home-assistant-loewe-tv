@@ -190,11 +190,12 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             _LOGGER.error("Error sending SOAP request to %s:%s: %s", self._host, self._port, err)
             return None
 
-    def _request_access(self, max_retries: int = MAX_AUTH_RETRIES) -> bool:
+    def _request_access(self, max_retries: int = MAX_AUTH_RETRIES, use_wol: bool = False) -> bool:
         """Request access to the TV and get ClientId.
         
         Args:
             max_retries: Maximum number of retry attempts for pending status
+            use_wol: If True, send WOL and retry on timeout
             
         Returns:
             True if authentication succeeded, False otherwise
@@ -216,9 +217,13 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         
         retry_count = 0
         while retry_count < max_retries:
-            # Use retry_with_wol=True to automatically send WOL on timeout
-            resp_text = self._send_soap_request(soap_body, "RequestAccess", retry_with_wol=True)
+            # Only use WOL if explicitly requested (e.g., during turn_on)
+            resp_text = self._send_soap_request(soap_body, "RequestAccess", retry_with_wol=use_wol)
             if not resp_text:
+                # If not using WOL and connection failed, don't retry - TV is likely off
+                if not use_wol:
+                    _LOGGER.debug("TV not reachable and WOL not requested, assuming TV is off")
+                    return False
                 _LOGGER.warning("Failed to get response for RequestAccess, retry %d/%d", retry_count + 1, max_retries)
                 retry_count += 1
                 time.sleep(RETRY_DELAY)
@@ -263,15 +268,30 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         _LOGGER.error("Failed to authenticate after %d retries", max_retries)
         return False
 
-    def _ensure_authenticated(self) -> bool:
-        """Ensure we have a valid ClientId, request access if needed."""
+    def _ensure_authenticated(self, use_wol: bool = False) -> bool:
+        """Ensure we have a valid ClientId, request access if needed.
+        
+        Args:
+            use_wol: If True, send WOL and retry on timeout during authentication
+            
+        Returns:
+            True if authenticated, False otherwise
+        """
         if self._client_id is not None:
             return True
-        return self._request_access()
+        return self._request_access(use_wol=use_wol)
 
-    def _inject_rc_key(self, key_code: int) -> bool:
-        """Send a remote control key press/release sequence."""
-        if not self._ensure_authenticated():
+    def _inject_rc_key(self, key_code: int, use_wol: bool = False) -> bool:
+        """Send a remote control key press/release sequence.
+        
+        Args:
+            key_code: The remote control key code to send
+            use_wol: If True, wake TV with WOL if not authenticated
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self._ensure_authenticated(use_wol=use_wol):
             _LOGGER.error("Not authenticated, cannot send RC key")
             return False
         
@@ -291,8 +311,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         </soapenv:Envelope>
         """
         
-        # Use retry_with_wol=True to handle TV being in standby/unreachable
-        resp_text = self._send_soap_request(soap_body, "InjectRCKey", retry_with_wol=True)
+        # Use retry_with_wol based on the use_wol parameter
+        resp_text = self._send_soap_request(soap_body, "InjectRCKey", retry_with_wol=use_wol)
         return resp_text is not None
 
     def _get_volume(self) -> int | None:
