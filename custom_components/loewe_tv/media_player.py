@@ -32,9 +32,10 @@ RETRY_DELAY = 3  # Seconds to wait between retry attempts
 MAX_AUTH_RETRIES = 3  # Maximum authentication retry attempts
 
 # Loewe TV remote control keycodes (alphabet: l2700)
+RC_KEY_POWER = 12
+RC_KEY_MUTE = 13
 RC_KEY_VOLUME_UP = 16
 RC_KEY_VOLUME_DOWN = 17
-RC_KEY_MUTE = 13
 RC_KEY_CHANNEL_UP = 32
 RC_KEY_CHANNEL_DOWN = 33
 
@@ -494,9 +495,9 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         await asyncio.sleep(WOL_WAIT_TIME)
 
     async def async_turn_off(self) -> None:
-        """Turn the TV off."""
+        """Turn the TV off using the Power RC key."""
         _LOGGER.info("Turning off Loewe TV at %s", self._host)
-        await self._hass.async_add_executor_job(self._standby)
+        await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_POWER)
 
     async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, range 0..1."""
