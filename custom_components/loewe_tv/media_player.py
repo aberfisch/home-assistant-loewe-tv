@@ -119,7 +119,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     @property
     def volume_level(self) -> float:
         """Volume level of the media player (0..1)."""
-        return self._volume / 99
+        return self._volume 
 
     @property
     def is_volume_muted(self) -> bool:
