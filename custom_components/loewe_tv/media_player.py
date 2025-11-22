@@ -522,18 +522,16 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         """Mute or unmute the volume."""
         _LOGGER.debug("Setting mute to %s", mute)
         
-        # Get current mute state
-        current_mute = await self._hass.async_add_executor_job(self._get_mute)
+        # Use cached mute state from last update
+        current_mute = self._is_volume_muted
         
         # Only toggle if current state differs from desired state
         # RC_KEY_MUTE (13) is a toggle button, like on the physical remote
-        if current_mute is not None and current_mute != mute:
+        if current_mute != mute:
             _LOGGER.debug("Current mute is %s, toggling to %s", current_mute, mute)
             await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_MUTE)
-        elif current_mute is None:
-            # If we can't get current state, try using SetMute as fallback
-            _LOGGER.debug("Cannot determine current mute state, using SetMute")
-            await self._hass.async_add_executor_job(self._set_mute, mute)
+            # Update cached state immediately
+            self._is_volume_muted = mute
         else:
             _LOGGER.debug("Mute already at desired state %s", mute)
 
