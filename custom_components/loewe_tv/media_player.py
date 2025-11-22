@@ -694,8 +694,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             if actual_volume is not None:
                 self._volume = actual_volume
                 _LOGGER.info("Volume confirmed as %d after set operation (HA value: %.2f)", actual_volume, actual_volume / 99)
-            # Notify Home Assistant that the state has changed
-            self.async_write_ha_state()
+                # Notify Home Assistant that the state has changed
+                self.async_write_ha_state()
         else:
             _LOGGER.error("Failed to set volume to %d (0-99 range)", volume_percent)
 
