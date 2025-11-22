@@ -433,10 +433,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         success = resp_text is not None
         
         if success:
-            # Update cached volume immediately after successful set
-            # This ensures UI reflects the change without waiting for next update
-            self._volume = volume
-            _LOGGER.debug("Volume set to %d and cache updated", volume)
+            _LOGGER.debug("Volume set command sent successfully for value %d", volume)
         else:
             _LOGGER.warning("Failed to set volume to %d", volume)
         
@@ -671,6 +668,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         result = await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_POWER, True)
         if result:
             _LOGGER.debug("Power RC key sent successfully")
+            # Update state to reflect TV is now on and get current volume
+            await self.async_update()
         else:
             _LOGGER.warning("Failed to send power RC key, TV may require manual power on")
 
@@ -686,10 +685,15 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             return
 
         volume_percent = round(volume * 99)
-        _LOGGER.debug("Setting volume to %d (0-99 range)", volume_percent)
+        _LOGGER.info("Setting volume from HA value %.2f to TV value %d (0-99 range)", volume, volume_percent)
         success = await self._hass.async_add_executor_job(self._set_volume, volume_percent)
         if success:
             _LOGGER.info("Successfully set volume to %d (0-99 range)", volume_percent)
+            # Query actual volume from TV to ensure UI reflects the correct value
+            actual_volume = await self._hass.async_add_executor_job(self._get_volume)
+            if actual_volume is not None:
+                self._volume = actual_volume
+                _LOGGER.info("Volume confirmed as %d after set operation (HA value: %.2f)", actual_volume, actual_volume / 99)
             # Notify Home Assistant that the state has changed
             self.async_write_ha_state()
         else:
