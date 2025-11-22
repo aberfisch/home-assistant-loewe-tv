@@ -282,6 +282,29 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             return True
         return self._request_access(use_wol=use_wol)
 
+    def _validate_volume(self, volume: int) -> int:
+        """Validate and clamp volume to valid range (0-100).
+        
+        Args:
+            volume: Volume value to validate
+            
+        Returns:
+            Clamped volume value in range 0-100
+        """
+        if not 0 <= volume <= 100:
+            _LOGGER.warning("Volume value out of valid range (0-100): %d, clamping", volume)
+            volume = max(0, min(100, volume))
+        return volume
+
+    def _log_parse_failure(self, operation: str, resp_text: str) -> None:
+        """Log parsing failure with response length.
+        
+        Args:
+            operation: Name of the operation (e.g., "GetVolume")
+            resp_text: Response text
+        """
+        _LOGGER.debug("%s response length: %d bytes", operation, len(resp_text))
+
     def _inject_rc_key(self, key_code: int, use_wol: bool = False) -> bool:
         """Send a remote control key press/release sequence.
         
@@ -335,22 +358,46 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         
         resp_text = self._send_soap_request(soap_body, "GetVolume")
         if not resp_text:
+            _LOGGER.debug("No response from GetVolume request")
             return None
         
         try:
             root = ET.fromstring(resp_text)
             ns = {"ltv": NAMESPACE}
+            
+            # Try with namespace prefix first
             value = root.find(".//ltv:Value", ns)
+            if value is None:
+                # Fallback: try with explicit namespace (for default namespace case)
+                value = root.find(".//{%s}Value" % NAMESPACE)
+            if value is None:
+                # Fallback: try without any namespace
+                value = root.find(".//Value")
+            
             if value is not None and value.text:
-                return int(value.text)
+                volume = int(value.text)
+                # Validate and clamp volume to valid range
+                volume = self._validate_volume(volume)
+                _LOGGER.debug("Parsed volume from response: %d", volume)
+                return volume
+            else:
+                _LOGGER.warning("Could not find Value element in GetVolume response")
+                self._log_parse_failure("GetVolume", resp_text)
+        except ValueError as err:
+            _LOGGER.error("Invalid volume value in response: %s", err)
+            self._log_parse_failure("GetVolume", resp_text)
         except Exception as err:
             _LOGGER.error("Error parsing volume response: %s", err)
+            self._log_parse_failure("GetVolume", resp_text)
         return None
 
     def _set_volume(self, volume: int) -> bool:
         """Set volume level (0-100)."""
         if not self._ensure_authenticated():
             return False
+        
+        # Validate and clamp volume to valid range
+        volume = self._validate_volume(volume)
         
         soap_body = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
             xmlns:ltv="{NAMESPACE}">
@@ -366,7 +413,17 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         """
         
         resp_text = self._send_soap_request(soap_body, "SetVolume")
-        return resp_text is not None
+        success = resp_text is not None
+        
+        if success:
+            # Update cached volume immediately after successful set
+            # This ensures UI reflects the change without waiting for next update
+            self._volume = volume
+            _LOGGER.debug("Volume set to %d and cache updated", volume)
+        else:
+            _LOGGER.warning("Failed to set volume to %d", volume)
+        
+        return success
 
     def _get_mute(self) -> bool | None:
         """Get current mute status."""
@@ -387,16 +444,32 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         
         resp_text = self._send_soap_request(soap_body, "GetMute")
         if not resp_text:
+            _LOGGER.debug("No response from GetMute request")
             return None
         
         try:
             root = ET.fromstring(resp_text)
             ns = {"ltv": NAMESPACE}
+            
+            # Try with namespace prefix first
             value = root.find(".//ltv:Value", ns)
+            if value is None:
+                # Fallback: try with explicit namespace (for default namespace case)
+                value = root.find(".//{%s}Value" % NAMESPACE)
+            if value is None:
+                # Fallback: try without any namespace
+                value = root.find(".//Value")
+            
             if value is not None and value.text:
-                return value.text.lower() == "true" or value.text == "1"
+                mute_value = value.text.lower() == "true" or value.text == "1"
+                _LOGGER.debug("Parsed mute from response: %s", mute_value)
+                return mute_value
+            else:
+                _LOGGER.warning("Could not find Value element in GetMute response")
+                self._log_parse_failure("GetMute", resp_text)
         except Exception as err:
             _LOGGER.error("Error parsing mute response: %s", err)
+            self._log_parse_failure("GetMute", resp_text)
         return None
 
     def _set_mute(self, mute: bool) -> bool:
@@ -514,17 +587,25 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
 
         volume_percent = int(volume * 100)
         _LOGGER.debug("Setting volume to %d%%", volume_percent)
-        await self._hass.async_add_executor_job(self._set_volume, volume_percent)
+        success = await self._hass.async_add_executor_job(self._set_volume, volume_percent)
+        if success:
+            _LOGGER.info("Successfully set volume to %d%%", volume_percent)
+        else:
+            _LOGGER.error("Failed to set volume to %d%%", volume_percent)
 
     async def async_volume_up(self) -> None:
         """Increase volume by one step."""
-        _LOGGER.debug("Increasing volume")
-        await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_VOLUME_UP)
+        _LOGGER.debug("Increasing volume with RC key")
+        success = await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_VOLUME_UP)
+        if not success:
+            _LOGGER.warning("Failed to send volume up RC key")
 
     async def async_volume_down(self) -> None:
         """Decrease volume by one step."""
-        _LOGGER.debug("Decreasing volume")
-        await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_VOLUME_DOWN)
+        _LOGGER.debug("Decreasing volume with RC key")
+        success = await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_VOLUME_DOWN)
+        if not success:
+            _LOGGER.warning("Failed to send volume down RC key")
 
     async def async_mute_volume(self, mute: bool) -> None:
         """Mute or unmute the volume."""
