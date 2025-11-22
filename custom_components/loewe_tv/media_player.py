@@ -83,6 +83,18 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         
         # Use MAC address as unique ID since it's unique per device
         self._attr_unique_id = mac.replace(":", "").lower()
+        
+        # Set supported features using the _attr_ pattern for better Home Assistant compatibility
+        self._attr_supported_features = (
+            MediaPlayerEntityFeature.TURN_ON
+            | MediaPlayerEntityFeature.TURN_OFF
+            | MediaPlayerEntityFeature.VOLUME_SET
+            | MediaPlayerEntityFeature.VOLUME_STEP
+            | MediaPlayerEntityFeature.VOLUME_MUTE
+            | MediaPlayerEntityFeature.NEXT_TRACK
+            | MediaPlayerEntityFeature.PREVIOUS_TRACK
+            | MediaPlayerEntityFeature.PLAY_MEDIA
+        )
 
     @property
     def name(self) -> str:
@@ -113,20 +125,6 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     def is_volume_muted(self) -> bool:
         """Boolean if volume is currently muted."""
         return self._is_volume_muted
-
-    @property
-    def supported_features(self) -> MediaPlayerEntityFeature:
-        """Flag media player features that are supported."""
-        return (
-            MediaPlayerEntityFeature.TURN_ON
-            | MediaPlayerEntityFeature.TURN_OFF
-            | MediaPlayerEntityFeature.VOLUME_SET
-            | MediaPlayerEntityFeature.VOLUME_STEP
-            | MediaPlayerEntityFeature.VOLUME_MUTE
-            | MediaPlayerEntityFeature.NEXT_TRACK
-            | MediaPlayerEntityFeature.PREVIOUS_TRACK
-            | MediaPlayerEntityFeature.PLAY_MEDIA
-        )
 
     def _send_wol(self) -> None:
         """Send a Wake-on-LAN magic packet to the TV."""
