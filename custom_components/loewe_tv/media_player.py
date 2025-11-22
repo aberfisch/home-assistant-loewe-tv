@@ -685,15 +685,15 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             _LOGGER.error("Volume must be between 0.0 and 1.0, got: %s", volume)
             return
 
-        volume_percent = int(volume * 99)
-        _LOGGER.debug("Setting volume to %d", volume_percent)
+        volume_percent = round(volume * 99)
+        _LOGGER.debug("Setting volume to %d (0-99 range)", volume_percent)
         success = await self._hass.async_add_executor_job(self._set_volume, volume_percent)
         if success:
-            _LOGGER.info("Successfully set volume to %d", volume_percent)
+            _LOGGER.info("Successfully set volume to %d (0-99 range)", volume_percent)
             # Notify Home Assistant that the state has changed
             self.async_write_ha_state()
         else:
-            _LOGGER.error("Failed to set volume to %d", volume_percent)
+            _LOGGER.error("Failed to set volume to %d (0-99 range)", volume_percent)
 
     async def async_volume_up(self) -> None:
         """Increase volume by one step."""
