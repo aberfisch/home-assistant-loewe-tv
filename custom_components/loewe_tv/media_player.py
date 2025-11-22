@@ -84,6 +84,9 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         # Use MAC address as unique ID since it's unique per device
         self._attr_unique_id = mac.replace(":", "").lower()
         
+        # Set device class using the _attr_ pattern
+        self._attr_device_class = MediaPlayerDeviceClass.TV
+        
         # Set supported features using the _attr_ pattern for better Home Assistant compatibility
         self._attr_supported_features = (
             MediaPlayerEntityFeature.TURN_ON
@@ -105,11 +108,6 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     def unique_id(self) -> str:
         """Return the unique ID of the device."""
         return self._attr_unique_id
-
-    @property
-    def device_class(self) -> MediaPlayerDeviceClass:
-        """Return the device class of the media player."""
-        return MediaPlayerDeviceClass.TV
 
     @property
     def state(self) -> MediaPlayerState:
