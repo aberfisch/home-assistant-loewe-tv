@@ -529,9 +529,12 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         # RC_KEY_MUTE (13) is a toggle button, like on the physical remote
         if current_mute != mute:
             _LOGGER.debug("Current mute is %s, toggling to %s", current_mute, mute)
-            await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_MUTE)
-            # Update cached state immediately
-            self._is_volume_muted = mute
+            success = await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_MUTE)
+            # Update cached state only if the operation succeeded
+            if success:
+                self._is_volume_muted = mute
+            else:
+                _LOGGER.warning("Failed to toggle mute state")
         else:
             _LOGGER.debug("Mute already at desired state %s", mute)
 
