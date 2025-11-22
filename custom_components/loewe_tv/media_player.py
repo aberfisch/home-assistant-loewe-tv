@@ -469,6 +469,38 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         resp_text = self._send_soap_request(soap_body, "ZapToMedia")
         return resp_text is not None
 
+    def _format_channel_title(self, locator: str) -> str:
+        """Format the locator into a user-friendly channel title.
+        
+        Args:
+            locator: The media locator URI (e.g., 'dvb://1', 'http://example.com/stream')
+            
+        Returns:
+            Formatted channel title
+        """
+        # Handle DVB channels (e.g., dvb://1)
+        if locator.startswith("dvb://"):
+            channel_id = locator.replace("dvb://", "")
+            return f"Channel {channel_id}"
+        
+        # Handle HTTP/HTTPS streaming URLs - extract domain or path
+        if locator.startswith(("http://", "https://")):
+            # Try to extract a meaningful name from the URL
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(locator)
+                if parsed.path and parsed.path != "/":
+                    # Use the last part of the path as the name
+                    path_parts = parsed.path.strip("/").split("/")
+                    return path_parts[-1] if path_parts else locator
+                elif parsed.hostname:
+                    return parsed.hostname
+            except Exception:
+                pass
+        
+        # For any other locator format, return as-is
+        return locator
+
     def _get_current_playback(self) -> dict | None:
         """Get current playback information (channel/media)."""
         if not self._ensure_authenticated():
@@ -504,8 +536,10 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 result["locator"] = locator.text
             
             return result if result else None
+        except ET.ParseError as err:
+            _LOGGER.error("Error parsing current playback XML response: %s", err)
         except Exception as err:
-            _LOGGER.error("Error parsing current playback response: %s", err)
+            _LOGGER.error("Error processing current playback response: %s", err)
         return None
 
     async def async_update(self) -> None:
@@ -534,11 +568,10 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         # Get current playback information (channel/media)
         playback = await self._hass.async_add_executor_job(self._get_current_playback)
         if playback and "locator" in playback:
-            # Extract channel information from locator
-            # Locator format is typically: dvb://channel_number or other URI formats
+            # Format the locator into a user-friendly channel title
             locator = playback["locator"]
-            self._media_title = locator
-            _LOGGER.debug("Current playback locator: %s", locator)
+            self._media_title = self._format_channel_title(locator)
+            _LOGGER.debug("Current playback locator: %s, title: %s", locator, self._media_title)
         else:
             self._media_title = None
 
