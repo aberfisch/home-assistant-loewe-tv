@@ -433,10 +433,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         success = resp_text is not None
         
         if success:
-            # Update cached volume immediately after successful set
-            # This ensures UI reflects the change without waiting for next update
-            self._volume = volume
-            _LOGGER.debug("Volume set to %d and cache updated", volume)
+            _LOGGER.debug("Volume set command sent successfully for value %d", volume)
         else:
             _LOGGER.warning("Failed to set volume to %d", volume)
         
@@ -690,6 +687,11 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         success = await self._hass.async_add_executor_job(self._set_volume, volume_percent)
         if success:
             _LOGGER.info("Successfully set volume to %d (0-99 range)", volume_percent)
+            # Query actual volume from TV to ensure UI reflects the correct value
+            actual_volume = await self._hass.async_add_executor_job(self._get_volume)
+            if actual_volume is not None:
+                self._volume = actual_volume
+                _LOGGER.debug("Volume confirmed as %d after set operation", actual_volume)
             # Notify Home Assistant that the state has changed
             self.async_write_ha_state()
         else:
