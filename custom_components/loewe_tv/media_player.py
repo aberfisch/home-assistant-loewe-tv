@@ -26,6 +26,11 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_PORT = 905
 NAMESPACE = "urn:loewe.de:RemoteTV:Tablet"
 
+# WOL and retry settings
+WOL_WAIT_TIME = 10  # Seconds to wait for TV to wake up after WOL
+RETRY_DELAY = 3  # Seconds to wait between retry attempts
+MAX_AUTH_RETRIES = 3  # Maximum authentication retry attempts
+
 # Loewe TV remote control keycodes (alphabet: l2700)
 RC_KEY_VOLUME_UP = 16
 RC_KEY_VOLUME_DOWN = 17
@@ -168,7 +173,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 _LOGGER.info("TV not reachable, sending WOL packet and retrying...")
                 self._send_wol()
                 # Wait for TV to wake up
-                time.sleep(10)
+                time.sleep(WOL_WAIT_TIME)
                 # Retry once
                 try:
                     conn = http.client.HTTPConnection(self._host, self._port, timeout=5)
@@ -185,7 +190,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             _LOGGER.error("Error sending SOAP request to %s:%s: %s", self._host, self._port, err)
             return None
 
-    def _request_access(self, max_retries: int = 3) -> bool:
+    def _request_access(self, max_retries: int = MAX_AUTH_RETRIES) -> bool:
         """Request access to the TV and get ClientId.
         
         Args:
@@ -216,7 +221,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             if not resp_text:
                 _LOGGER.warning("Failed to get response for RequestAccess, retry %d/%d", retry_count + 1, max_retries)
                 retry_count += 1
-                time.sleep(3)
+                time.sleep(RETRY_DELAY)
                 continue
             
             try:
@@ -234,7 +239,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                     elif status_text == "Pending":
                         _LOGGER.warning("Pairing pending - please accept the pairing request on your TV (retry %d/%d)", retry_count + 1, max_retries)
                         retry_count += 1
-                        time.sleep(3)
+                        time.sleep(RETRY_DELAY)
                         continue
                     elif status_text == "Denied":
                         _LOGGER.error("Pairing denied by TV")
@@ -242,17 +247,17 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                     else:
                         _LOGGER.warning("Unexpected pairing status: %s", status_text)
                         retry_count += 1
-                        time.sleep(3)
+                        time.sleep(RETRY_DELAY)
                         continue
                 else:
                     _LOGGER.error("Missing status or clientid in response")
                     retry_count += 1
-                    time.sleep(3)
+                    time.sleep(RETRY_DELAY)
                     continue
             except Exception as err:
                 _LOGGER.error("Error parsing authentication response: %s", err)
                 retry_count += 1
-                time.sleep(3)
+                time.sleep(RETRY_DELAY)
                 continue
         
         _LOGGER.error("Failed to authenticate after %d retries", max_retries)
@@ -465,8 +470,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         _LOGGER.info("Turning on Loewe TV at %s using Wake-on-LAN", self._host)
         await self._hass.async_add_executor_job(self._send_wol)
         # Wait for TV to wake up before attempting further operations
-        _LOGGER.debug("Waiting 10 seconds for TV to wake up...")
-        await asyncio.sleep(10)
+        _LOGGER.debug("Waiting %d seconds for TV to wake up...", WOL_WAIT_TIME)
+        await asyncio.sleep(WOL_WAIT_TIME)
 
     async def async_turn_off(self) -> None:
         """Turn the TV off."""
