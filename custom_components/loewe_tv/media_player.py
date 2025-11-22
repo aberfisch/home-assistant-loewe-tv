@@ -557,11 +557,22 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         """Format the locator into a user-friendly channel title.
         
         Args:
-            locator: The media locator URI (e.g., 'dvb://1', 'http://example.com/stream')
+            locator: The media locator URI (e.g., 'dvb://1', 'channel://1:ch747f4e325', 'http://example.com/stream')
             
         Returns:
             Formatted channel title
         """
+        # Handle channel:// format (e.g., channel://1:ch747f4e325)
+        # Extract the channel number before the colon
+        if locator.startswith("channel://"):
+            channel_info = locator.replace("channel://", "")
+            # Split by colon to separate channel number from hex identifier
+            if ":" in channel_info:
+                channel_id = channel_info.split(":")[0]
+            else:
+                channel_id = channel_info
+            return f"Channel {channel_id}"
+        
         # Handle DVB channels (e.g., dvb://1)
         if locator.startswith("dvb://"):
             channel_id = locator.replace("dvb://", "")
