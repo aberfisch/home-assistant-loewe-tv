@@ -523,6 +523,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         _LOGGER.debug("Setting mute to %s", mute)
         
         # Use cached mute state from last update
+        # Note: async_update() is called regularly by Home Assistant, so this should be fresh
         current_mute = self._is_volume_muted
         
         # Only toggle if current state differs from desired state
@@ -531,6 +532,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             _LOGGER.debug("Current mute is %s, toggling to %s", current_mute, mute)
             success = await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_MUTE)
             # Update cached state only if the operation succeeded
+            # Since we know the starting state and it's a toggle, we can infer the new state
+            # The next async_update() will synchronize with the actual TV state
             if success:
                 self._is_volume_muted = mute
             else:
