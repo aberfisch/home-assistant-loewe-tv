@@ -690,6 +690,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         success = await self._hass.async_add_executor_job(self._set_volume, volume_percent)
         if success:
             _LOGGER.info("Successfully set volume to %d%%", volume_percent)
+            # Notify Home Assistant that the state has changed
+            self.async_write_ha_state()
         else:
             _LOGGER.error("Failed to set volume to %d%%", volume_percent)
 
@@ -699,6 +701,14 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         success = await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_VOLUME_UP)
         if not success:
             _LOGGER.warning("Failed to send volume up RC key")
+        else:
+            # Update cached volume after successful RC key to reflect change in UI
+            volume = await self._hass.async_add_executor_job(self._get_volume)
+            if volume is not None:
+                self._volume = volume
+                _LOGGER.debug("Volume updated to %d after volume up", volume)
+                # Notify Home Assistant that the state has changed
+                self.async_write_ha_state()
 
     async def async_volume_down(self) -> None:
         """Decrease volume by one step."""
@@ -706,6 +716,14 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         success = await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_VOLUME_DOWN)
         if not success:
             _LOGGER.warning("Failed to send volume down RC key")
+        else:
+            # Update cached volume after successful RC key to reflect change in UI
+            volume = await self._hass.async_add_executor_job(self._get_volume)
+            if volume is not None:
+                self._volume = volume
+                _LOGGER.debug("Volume updated to %d after volume down", volume)
+                # Notify Home Assistant that the state has changed
+                self.async_write_ha_state()
 
     async def async_mute_volume(self, mute: bool) -> None:
         """Mute or unmute the volume."""
