@@ -33,9 +33,9 @@ MAX_AUTH_RETRIES = 3  # Maximum authentication retry attempts
 
 # Loewe TV remote control keycodes (alphabet: l2700)
 RC_KEY_POWER = 12
+RC_KEY_MUTE = 13
 RC_KEY_VOLUME_UP = 16
 RC_KEY_VOLUME_DOWN = 17
-RC_KEY_MUTE = 13
 RC_KEY_CHANNEL_UP = 32
 RC_KEY_CHANNEL_DOWN = 33
 
@@ -502,9 +502,9 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             _LOGGER.warning("Failed to send power RC key, TV may require manual power on")
 
     async def async_turn_off(self) -> None:
-        """Turn the TV off."""
+        """Turn the TV off using the Power RC key."""
         _LOGGER.info("Turning off Loewe TV at %s", self._host)
-        await self._hass.async_add_executor_job(self._standby)
+        await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_POWER)
 
     async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, range 0..1."""
@@ -529,7 +529,25 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     async def async_mute_volume(self, mute: bool) -> None:
         """Mute or unmute the volume."""
         _LOGGER.debug("Setting mute to %s", mute)
-        await self._hass.async_add_executor_job(self._set_mute, mute)
+        
+        # Use cached mute state from last update
+        # Note: async_update() is called regularly by Home Assistant, so this should be fresh
+        current_mute = self._is_volume_muted
+        
+        # Only toggle if current state differs from desired state
+        # RC_KEY_MUTE (13) is a toggle button, like on the physical remote
+        if current_mute != mute:
+            _LOGGER.debug("Current mute is %s, toggling to %s", current_mute, mute)
+            success = await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_MUTE)
+            # Update cached state only if the operation succeeded
+            # Since we know the starting state and it's a toggle, we can infer the new state
+            # The next async_update() will synchronize with the actual TV state
+            if success:
+                self._is_volume_muted = mute
+            else:
+                _LOGGER.warning("Failed to toggle mute state")
+        else:
+            _LOGGER.debug("Mute already at desired state %s", mute)
 
     async def async_media_next_track(self) -> None:
         """Switch to the next channel."""
