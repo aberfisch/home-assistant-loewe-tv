@@ -353,6 +353,11 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             
             if value is not None and value.text:
                 volume = int(value.text)
+                # Validate volume range
+                if not 0 <= volume <= 100:
+                    _LOGGER.warning("Volume value out of expected range (0-100): %d", volume)
+                    # Clamp to valid range
+                    volume = max(0, min(100, volume))
                 _LOGGER.debug("Parsed volume from response: %d", volume)
                 return volume
             else:
@@ -370,6 +375,11 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         """Set volume level (0-100)."""
         if not self._ensure_authenticated():
             return False
+        
+        # Validate and clamp volume to valid range
+        if not 0 <= volume <= 100:
+            _LOGGER.warning("Volume value out of valid range (0-100): %d, clamping", volume)
+            volume = max(0, min(100, volume))
         
         soap_body = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
             xmlns:ltv="{NAMESPACE}">
