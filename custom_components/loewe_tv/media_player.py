@@ -487,12 +487,19 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             self._is_volume_muted = mute
 
     async def async_turn_on(self) -> None:
-        """Turn the TV on using Wake-on-LAN."""
+        """Turn the TV on using Wake-on-LAN and power RC key."""
         _LOGGER.info("Turning on Loewe TV at %s using Wake-on-LAN", self._host)
         await self._hass.async_add_executor_job(self._send_wol)
         # Wait for TV to wake up before attempting further operations
         _LOGGER.debug("Waiting %d seconds for TV to wake up...", WOL_WAIT_TIME)
         await asyncio.sleep(WOL_WAIT_TIME)
+        # Send power RC key to ensure TV turns on from standby
+        _LOGGER.debug("Sending power RC key to turn on TV")
+        result = await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_POWER, True)
+        if result:
+            _LOGGER.debug("Power RC key sent successfully")
+        else:
+            _LOGGER.warning("Failed to send power RC key, TV may require manual power on")
 
     async def async_turn_off(self) -> None:
         """Turn the TV off using the Power RC key."""
