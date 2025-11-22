@@ -71,6 +71,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         self._state = MediaPlayerState.OFF
         self._volume = 0
         self._is_volume_muted = False
+        self._media_title = None
         self._path = "/loewe_tablet_0001"
         
         # Authentication parameters
@@ -113,6 +114,11 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     def is_volume_muted(self) -> bool:
         """Boolean if volume is currently muted."""
         return self._is_volume_muted
+
+    @property
+    def media_title(self) -> str | None:
+        """Title of current playing media (channel name)."""
+        return self._media_title
 
     @property
     def supported_features(self) -> MediaPlayerEntityFeature:
@@ -463,6 +469,45 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         resp_text = self._send_soap_request(soap_body, "ZapToMedia")
         return resp_text is not None
 
+    def _get_current_playback(self) -> dict | None:
+        """Get current playback information (channel/media)."""
+        if not self._ensure_authenticated():
+            return None
+        
+        soap_body = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+            xmlns:ltv="{NAMESPACE}">
+          <soapenv:Header/>
+          <soapenv:Body>
+            <ltv:GetCurrentPlayback>
+              <ltv:fcid>{self._fcid}</ltv:fcid>
+              <ltv:ClientId>{self._client_id}</ltv:ClientId>
+              <ltv:Player>MainVideo</ltv:Player>
+            </ltv:GetCurrentPlayback>
+          </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        
+        resp_text = self._send_soap_request(soap_body, "GetCurrentPlayback")
+        if not resp_text:
+            return None
+        
+        try:
+            root = ET.fromstring(resp_text)
+            ns = {"ltv": NAMESPACE}
+            mode = root.find(".//ltv:Mode", ns)
+            locator = root.find(".//ltv:Locator", ns)
+            
+            result = {}
+            if mode is not None and mode.text:
+                result["mode"] = mode.text
+            if locator is not None and locator.text:
+                result["locator"] = locator.text
+            
+            return result if result else None
+        except Exception as err:
+            _LOGGER.error("Error parsing current playback response: %s", err)
+        return None
+
     async def async_update(self) -> None:
         """Retrieve the latest data from the TV."""
         _LOGGER.debug("Updating Loewe TV state")
@@ -485,6 +530,17 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         mute = await self._hass.async_add_executor_job(self._get_mute)
         if mute is not None:
             self._is_volume_muted = mute
+
+        # Get current playback information (channel/media)
+        playback = await self._hass.async_add_executor_job(self._get_current_playback)
+        if playback and "locator" in playback:
+            # Extract channel information from locator
+            # Locator format is typically: dvb://channel_number or other URI formats
+            locator = playback["locator"]
+            self._media_title = locator
+            _LOGGER.debug("Current playback locator: %s", locator)
+        else:
+            self._media_title = None
 
     async def async_turn_on(self) -> None:
         """Turn the TV on using Wake-on-LAN and power RC key."""
