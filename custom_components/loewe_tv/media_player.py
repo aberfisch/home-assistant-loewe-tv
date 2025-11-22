@@ -6,6 +6,7 @@ import random
 import socket
 import time
 from typing import Any
+from urllib.parse import urlparse
 import xml.etree.ElementTree as ET
 
 from wakeonlan import send_magic_packet
@@ -71,6 +72,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         self._state = MediaPlayerState.OFF
         self._volume = 0
         self._is_volume_muted = False
+        self._media_title = None
         self._path = "/loewe_tablet_0001"
         
         # Authentication parameters
@@ -113,6 +115,11 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     def is_volume_muted(self) -> bool:
         """Boolean if volume is currently muted."""
         return self._is_volume_muted
+
+    @property
+    def media_title(self) -> str | None:
+        """Title of current playing media (channel name)."""
+        return self._media_title
 
     @property
     def supported_features(self) -> MediaPlayerEntityFeature:
@@ -536,6 +543,79 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         resp_text = self._send_soap_request(soap_body, "ZapToMedia")
         return resp_text is not None
 
+    def _format_channel_title(self, locator: str) -> str:
+        """Format the locator into a user-friendly channel title.
+        
+        Args:
+            locator: The media locator URI (e.g., 'dvb://1', 'http://example.com/stream')
+            
+        Returns:
+            Formatted channel title
+        """
+        # Handle DVB channels (e.g., dvb://1)
+        if locator.startswith("dvb://"):
+            channel_id = locator.replace("dvb://", "")
+            return f"Channel {channel_id}"
+        
+        # Handle HTTP/HTTPS streaming URLs - extract domain or path
+        if locator.startswith(("http://", "https://")):
+            # Try to extract a meaningful name from the URL
+            try:
+                parsed = urlparse(locator)
+                if parsed.path and parsed.path != "/":
+                    # Use the last part of the path as the name
+                    path_parts = parsed.path.strip("/").split("/")
+                    return path_parts[-1] if path_parts else locator
+                elif parsed.hostname:
+                    return parsed.hostname
+            except (ValueError, AttributeError) as err:
+                _LOGGER.debug("Failed to parse URL locator '%s': %s", locator, err)
+        
+        # For any other locator format, return as-is
+        return locator
+
+    def _get_current_playback(self) -> dict | None:
+        """Get current playback information (channel/media)."""
+        if not self._ensure_authenticated():
+            return None
+        
+        soap_body = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+            xmlns:ltv="{NAMESPACE}">
+          <soapenv:Header/>
+          <soapenv:Body>
+            <ltv:GetCurrentPlayback>
+              <ltv:fcid>{self._fcid}</ltv:fcid>
+              <ltv:ClientId>{self._client_id}</ltv:ClientId>
+              <ltv:Player>MainVideo</ltv:Player>
+            </ltv:GetCurrentPlayback>
+          </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        
+        resp_text = self._send_soap_request(soap_body, "GetCurrentPlayback")
+        if not resp_text:
+            return None
+        
+        try:
+            root = ET.fromstring(resp_text)
+            ns = {"ltv": NAMESPACE}
+            mode = root.find(".//ltv:Mode", ns)
+            locator = root.find(".//ltv:Locator", ns)
+            
+            result = {}
+            if mode is not None and mode.text:
+                result["mode"] = mode.text
+            if locator is not None and locator.text:
+                result["locator"] = locator.text
+            
+            return result if result else None
+        except ET.ParseError as err:
+            _LOGGER.error("Error parsing current playback XML response: %s", err)
+        except (AttributeError, KeyError, ValueError) as err:
+            # Catch specific errors that might occur during XML processing
+            _LOGGER.error("Error processing current playback response: %s", err)
+        return None
+
     async def async_update(self) -> None:
         """Retrieve the latest data from the TV."""
         _LOGGER.debug("Updating Loewe TV state")
@@ -558,6 +638,16 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         mute = await self._hass.async_add_executor_job(self._get_mute)
         if mute is not None:
             self._is_volume_muted = mute
+
+        # Get current playback information (channel/media)
+        playback = await self._hass.async_add_executor_job(self._get_current_playback)
+        locator = playback.get("locator") if playback is not None else None
+        if locator:
+            # Format the locator into a user-friendly channel title
+            self._media_title = self._format_channel_title(locator)
+            _LOGGER.debug("Current playback locator: %s, title: %s", locator, self._media_title)
+        else:
+            self._media_title = None
 
     async def async_turn_on(self) -> None:
         """Turn the TV on using Wake-on-LAN and power RC key."""
