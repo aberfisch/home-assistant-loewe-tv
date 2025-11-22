@@ -119,7 +119,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     @property
     def volume_level(self) -> float:
         """Volume level of the media player (0..1)."""
-        return self._volume / 100
+        return self._volume / 99
 
     @property
     def is_volume_muted(self) -> bool:
@@ -300,17 +300,17 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         return self._request_access(use_wol=use_wol)
 
     def _validate_volume(self, volume: int) -> int:
-        """Validate and clamp volume to valid range (0-100).
+        """Validate and clamp volume to valid range (0-99).
         
         Args:
             volume: Volume value to validate
             
         Returns:
-            Clamped volume value in range 0-100
+            Clamped volume value in range 0-99
         """
-        if not 0 <= volume <= 100:
-            _LOGGER.warning("Volume value out of valid range (0-100): %d, clamping", volume)
-            volume = max(0, min(100, volume))
+        if not 0 <= volume <= 99:
+            _LOGGER.warning("Volume value out of valid range (0-99): %d, clamping", volume)
+            volume = max(0, min(99, volume))
         return volume
 
     def _log_parse_failure(self, operation: str, resp_text: str) -> None:
@@ -409,7 +409,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         return None
 
     def _set_volume(self, volume: int) -> bool:
-        """Set volume level (0-100)."""
+        """Set volume level (0-99)."""
         if not self._ensure_authenticated():
             return False
         
@@ -685,15 +685,15 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             _LOGGER.error("Volume must be between 0.0 and 1.0, got: %s", volume)
             return
 
-        volume_percent = int(volume * 100)
-        _LOGGER.debug("Setting volume to %d%%", volume_percent)
+        volume_percent = int(volume * 99)
+        _LOGGER.debug("Setting volume to %d", volume_percent)
         success = await self._hass.async_add_executor_job(self._set_volume, volume_percent)
         if success:
-            _LOGGER.info("Successfully set volume to %d%%", volume_percent)
+            _LOGGER.info("Successfully set volume to %d", volume_percent)
             # Notify Home Assistant that the state has changed
             self.async_write_ha_state()
         else:
-            _LOGGER.error("Failed to set volume to %d%%", volume_percent)
+            _LOGGER.error("Failed to set volume to %d", volume_percent)
 
     async def async_volume_up(self) -> None:
         """Increase volume by one step."""

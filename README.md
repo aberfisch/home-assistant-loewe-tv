@@ -12,7 +12,7 @@ A custom Home Assistant integration for controlling Loewe Television sets via th
 
 ### Volume Control
 - Get current volume level
-- Set volume to specific level (0-100)
+- Set volume to specific level (0-99)
 - Volume up/down controls via remote control keys
 - Mute and unmute functionality
 
@@ -205,7 +205,7 @@ This documentation provides comprehensive details about available SOAP methods, 
 
 This integration uses the following SOAP operations from the Loewe TV WSDL (`http://<TV_IP>:<PORT>/loewe_tablet_0001`):
 
-- **GetVolume** - Retrieves current volume level (0-100)
+- **GetVolume** - Retrieves current volume level (0-99)
 - **SetVolume** - Sets volume level
 - **GetMute** - Retrieves current mute status
 - **SetMute** - Sets mute status
