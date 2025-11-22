@@ -272,7 +272,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         """Ensure we have a valid ClientId, request access if needed.
         
         Args:
-            use_wol: If True, send WOL and retry on timeout during authentication
+            use_wol: If True, send WOL and retry when TV is unreachable during authentication
             
         Returns:
             True if authenticated, False otherwise
@@ -286,7 +286,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         
         Args:
             key_code: The remote control key code to send
-            use_wol: If True, wake TV with WOL if not authenticated
+            use_wol: If True, send WOL and retry when TV is unreachable during this operation
             
         Returns:
             True if successful, False otherwise
