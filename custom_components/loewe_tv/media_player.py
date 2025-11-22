@@ -538,7 +538,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             return result if result else None
         except ET.ParseError as err:
             _LOGGER.error("Error parsing current playback XML response: %s", err)
-        except Exception as err:
+        except (AttributeError, KeyError, ValueError) as err:
+            # Catch specific errors that might occur during XML processing
             _LOGGER.error("Error processing current playback response: %s", err)
         return None
 
