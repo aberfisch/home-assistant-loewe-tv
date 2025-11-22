@@ -3,6 +3,8 @@ import asyncio
 import http.client
 import logging
 import random
+import socket
+import time
 from typing import Any
 import xml.etree.ElementTree as ET
 
@@ -120,8 +122,34 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             | MediaPlayerEntityFeature.PLAY_MEDIA
         )
 
-    def _send_soap_request(self, soap_body: str, soap_action: str) -> str | None:
-        """Send a raw SOAP request to the TV."""
+    def _send_wol(self) -> None:
+        """Send a Wake-on-LAN magic packet to the TV."""
+        try:
+            # Calculate broadcast address from host IP
+            ip_parts = self._host.split('.')
+            if len(ip_parts) == 4:
+                # Use the broadcast address for the /24 network
+                broadcast_addr = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.255"
+                _LOGGER.debug("Sending WOL packet to MAC %s via broadcast %s", self._mac, broadcast_addr)
+                send_magic_packet(self._mac, ip_address=broadcast_addr)
+            else:
+                # Fallback to sending without broadcast address
+                _LOGGER.debug("Sending WOL packet to MAC %s", self._mac)
+                send_magic_packet(self._mac)
+        except Exception as err:
+            _LOGGER.error("Failed to send Wake-on-LAN packet: %s", err)
+
+    def _send_soap_request(self, soap_body: str, soap_action: str, retry_with_wol: bool = False) -> str | None:
+        """Send a raw SOAP request to the TV.
+        
+        Args:
+            soap_body: The SOAP request body
+            soap_action: The SOAP action name
+            retry_with_wol: If True, will send WOL and retry once on timeout
+            
+        Returns:
+            Response text or None on failure
+        """
         headers = {
             "Content-Type": "text/xml; charset=utf-8",
             "SOAPAction": f'"{NAMESPACE}#{soap_action}"'
@@ -134,12 +162,38 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             resp_text = response.read().decode('utf-8', errors='ignore')
             conn.close()
             return resp_text
+        except socket.timeout:
+            _LOGGER.warning("Socket timeout connecting to TV at %s:%s", self._host, self._port)
+            if retry_with_wol:
+                _LOGGER.info("TV not reachable, sending WOL packet and retrying...")
+                self._send_wol()
+                # Wait for TV to wake up
+                time.sleep(10)
+                # Retry once
+                try:
+                    conn = http.client.HTTPConnection(self._host, self._port, timeout=5)
+                    conn.request("POST", self._path, body=soap_body, headers=headers)
+                    response = conn.getresponse()
+                    resp_text = response.read().decode('utf-8', errors='ignore')
+                    conn.close()
+                    return resp_text
+                except Exception as err:
+                    _LOGGER.error("Error sending SOAP request after WOL retry: %s", err)
+                    return None
+            return None
         except Exception as err:
             _LOGGER.error("Error sending SOAP request to %s:%s: %s", self._host, self._port, err)
             return None
 
-    def _request_access(self) -> bool:
-        """Request access to the TV and get ClientId."""
+    def _request_access(self, max_retries: int = 3) -> bool:
+        """Request access to the TV and get ClientId.
+        
+        Args:
+            max_retries: Maximum number of retry attempts for pending status
+            
+        Returns:
+            True if authentication succeeded, False otherwise
+        """
         soap_body = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
             xmlns:ltv="{NAMESPACE}">
           <soapenv:Header/>
@@ -155,37 +209,54 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         </soapenv:Envelope>
         """
         
-        resp_text = self._send_soap_request(soap_body, "RequestAccess")
-        if not resp_text:
-            return False
-        
-        try:
-            root = ET.fromstring(resp_text)
-            ns = {"ltv": NAMESPACE}
-            status = root.find(".//ltv:AccessStatus", ns)
-            clientid = root.find(".//ltv:ClientId", ns)
+        retry_count = 0
+        while retry_count < max_retries:
+            # Use retry_with_wol=True to automatically send WOL on timeout
+            resp_text = self._send_soap_request(soap_body, "RequestAccess", retry_with_wol=True)
+            if not resp_text:
+                _LOGGER.warning("Failed to get response for RequestAccess, retry %d/%d", retry_count + 1, max_retries)
+                retry_count += 1
+                time.sleep(3)
+                continue
             
-            if status is not None and clientid is not None:
-                status_text = status.text
-                if status_text == "Accepted":
-                    self._client_id = clientid.text
-                    _LOGGER.info("Successfully authenticated with TV, ClientId: %s", self._client_id)
-                    return True
-                elif status_text == "Pending":
-                    _LOGGER.warning("Pairing pending - please accept the pairing request on your TV")
-                    return False
-                elif status_text == "Denied":
-                    _LOGGER.error("Pairing denied by TV")
-                    return False
+            try:
+                root = ET.fromstring(resp_text)
+                ns = {"ltv": NAMESPACE}
+                status = root.find(".//ltv:AccessStatus", ns)
+                clientid = root.find(".//ltv:ClientId", ns)
+                
+                if status is not None and clientid is not None:
+                    status_text = status.text
+                    if status_text == "Accepted":
+                        self._client_id = clientid.text
+                        _LOGGER.info("Successfully authenticated with TV, ClientId: %s", self._client_id)
+                        return True
+                    elif status_text == "Pending":
+                        _LOGGER.warning("Pairing pending - please accept the pairing request on your TV (retry %d/%d)", retry_count + 1, max_retries)
+                        retry_count += 1
+                        time.sleep(3)
+                        continue
+                    elif status_text == "Denied":
+                        _LOGGER.error("Pairing denied by TV")
+                        return False
+                    else:
+                        _LOGGER.warning("Unexpected pairing status: %s", status_text)
+                        retry_count += 1
+                        time.sleep(3)
+                        continue
                 else:
-                    _LOGGER.warning("Unexpected pairing status: %s", status_text)
-                    return False
-            else:
-                _LOGGER.error("Missing status or clientid in response")
-                return False
-        except Exception as err:
-            _LOGGER.error("Error parsing authentication response: %s", err)
-            return False
+                    _LOGGER.error("Missing status or clientid in response")
+                    retry_count += 1
+                    time.sleep(3)
+                    continue
+            except Exception as err:
+                _LOGGER.error("Error parsing authentication response: %s", err)
+                retry_count += 1
+                time.sleep(3)
+                continue
+        
+        _LOGGER.error("Failed to authenticate after %d retries", max_retries)
+        return False
 
     def _ensure_authenticated(self) -> bool:
         """Ensure we have a valid ClientId, request access if needed."""
@@ -215,7 +286,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         </soapenv:Envelope>
         """
         
-        resp_text = self._send_soap_request(soap_body, "InjectRCKey")
+        # Use retry_with_wol=True to handle TV being in standby/unreachable
+        resp_text = self._send_soap_request(soap_body, "InjectRCKey", retry_with_wol=True)
         return resp_text is not None
 
     def _get_volume(self) -> int | None:
@@ -391,24 +463,10 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     async def async_turn_on(self) -> None:
         """Turn the TV on using Wake-on-LAN."""
         _LOGGER.info("Turning on Loewe TV at %s using Wake-on-LAN", self._host)
-        try:
-            # Calculate broadcast address from host IP
-            ip_parts = self._host.split('.')
-            if len(ip_parts) == 4:
-                # Use the broadcast address for the /24 network
-                broadcast_addr = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.255"
-                _LOGGER.debug("Sending WOL packet to MAC %s via broadcast %s", self._mac, broadcast_addr)
-                await self._hass.async_add_executor_job(
-                    lambda: send_magic_packet(self._mac, ip_address=broadcast_addr)
-                )
-            else:
-                # Fallback to sending without broadcast address
-                _LOGGER.debug("Sending WOL packet to MAC %s", self._mac)
-                await self._hass.async_add_executor_job(
-                    lambda: send_magic_packet(self._mac)
-                )
-        except Exception as err:
-            _LOGGER.error("Failed to send Wake-on-LAN packet: %s", err)
+        await self._hass.async_add_executor_job(self._send_wol)
+        # Wait for TV to wake up before attempting further operations
+        _LOGGER.debug("Waiting 10 seconds for TV to wake up...")
+        await asyncio.sleep(10)
 
     async def async_turn_off(self) -> None:
         """Turn the TV off."""
