@@ -282,6 +282,29 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             return True
         return self._request_access(use_wol=use_wol)
 
+    def _validate_volume(self, volume: int) -> int:
+        """Validate and clamp volume to valid range (0-100).
+        
+        Args:
+            volume: Volume value to validate
+            
+        Returns:
+            Clamped volume value in range 0-100
+        """
+        if not 0 <= volume <= 100:
+            _LOGGER.warning("Volume value out of valid range (0-100): %d, clamping", volume)
+            volume = max(0, min(100, volume))
+        return volume
+
+    def _log_parse_failure(self, operation: str, resp_text: str) -> None:
+        """Log parsing failure with response length.
+        
+        Args:
+            operation: Name of the operation (e.g., "GetVolume")
+            resp_text: Response text
+        """
+        _LOGGER.debug("%s response length: %d bytes", operation, len(resp_text))
+
     def _inject_rc_key(self, key_code: int, use_wol: bool = False) -> bool:
         """Send a remote control key press/release sequence.
         
@@ -353,22 +376,19 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             
             if value is not None and value.text:
                 volume = int(value.text)
-                # Validate volume range
-                if not 0 <= volume <= 100:
-                    _LOGGER.warning("Volume value out of expected range (0-100): %d", volume)
-                    # Clamp to valid range
-                    volume = max(0, min(100, volume))
+                # Validate and clamp volume to valid range
+                volume = self._validate_volume(volume)
                 _LOGGER.debug("Parsed volume from response: %d", volume)
                 return volume
             else:
                 _LOGGER.warning("Could not find Value element in GetVolume response")
-                _LOGGER.debug("GetVolume response length: %d bytes", len(resp_text))
+                self._log_parse_failure("GetVolume", resp_text)
         except ValueError as err:
             _LOGGER.error("Invalid volume value in response: %s", err)
-            _LOGGER.debug("GetVolume response length: %d bytes", len(resp_text))
+            self._log_parse_failure("GetVolume", resp_text)
         except Exception as err:
             _LOGGER.error("Error parsing volume response: %s", err)
-            _LOGGER.debug("GetVolume response length: %d bytes", len(resp_text))
+            self._log_parse_failure("GetVolume", resp_text)
         return None
 
     def _set_volume(self, volume: int) -> bool:
@@ -377,9 +397,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             return False
         
         # Validate and clamp volume to valid range
-        if not 0 <= volume <= 100:
-            _LOGGER.warning("Volume value out of valid range (0-100): %d, clamping", volume)
-            volume = max(0, min(100, volume))
+        volume = self._validate_volume(volume)
         
         soap_body = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
             xmlns:ltv="{NAMESPACE}">
@@ -448,10 +466,10 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 return mute_value
             else:
                 _LOGGER.warning("Could not find Value element in GetMute response")
-                _LOGGER.debug("GetMute response length: %d bytes", len(resp_text))
+                self._log_parse_failure("GetMute", resp_text)
         except Exception as err:
             _LOGGER.error("Error parsing mute response: %s", err)
-            _LOGGER.debug("GetMute response length: %d bytes", len(resp_text))
+            self._log_parse_failure("GetMute", resp_text)
         return None
 
     def _set_mute(self, mute: bool) -> bool:
