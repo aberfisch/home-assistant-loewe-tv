@@ -568,7 +568,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
 
         # Get current playback information (channel/media)
         playback = await self._hass.async_add_executor_job(self._get_current_playback)
-        locator = playback.get("locator") if playback else None
+        locator = playback.get("locator") if playback is not None else None
         if locator:
             # Format the locator into a user-friendly channel title
             self._media_title = self._format_channel_title(locator)
