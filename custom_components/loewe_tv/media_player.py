@@ -362,13 +362,13 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 return volume
             else:
                 _LOGGER.warning("Could not find Value element in GetVolume response")
-                _LOGGER.debug("GetVolume response: %s", resp_text[:500])
+                _LOGGER.debug("GetVolume response length: %d bytes", len(resp_text))
         except ValueError as err:
             _LOGGER.error("Invalid volume value in response: %s", err)
-            _LOGGER.debug("GetVolume response: %s", resp_text[:500])
+            _LOGGER.debug("GetVolume response length: %d bytes", len(resp_text))
         except Exception as err:
             _LOGGER.error("Error parsing volume response: %s", err)
-            _LOGGER.debug("GetVolume response: %s", resp_text[:500])
+            _LOGGER.debug("GetVolume response length: %d bytes", len(resp_text))
         return None
 
     def _set_volume(self, volume: int) -> bool:
@@ -448,10 +448,10 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 return mute_value
             else:
                 _LOGGER.warning("Could not find Value element in GetMute response")
-                _LOGGER.debug("GetMute response: %s", resp_text[:500])
+                _LOGGER.debug("GetMute response length: %d bytes", len(resp_text))
         except Exception as err:
             _LOGGER.error("Error parsing mute response: %s", err)
-            _LOGGER.debug("GetMute response: %s", resp_text[:500])
+            _LOGGER.debug("GetMute response length: %d bytes", len(resp_text))
         return None
 
     def _set_mute(self, mute: bool) -> bool:
