@@ -131,20 +131,6 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         """Title of current playing media (channel name)."""
         return self._media_title
 
-    @property
-    def supported_features(self) -> MediaPlayerEntityFeature:
-        """Flag media player features that are supported."""
-        return (
-            MediaPlayerEntityFeature.TURN_ON
-            | MediaPlayerEntityFeature.TURN_OFF
-            | MediaPlayerEntityFeature.VOLUME_SET
-            | MediaPlayerEntityFeature.VOLUME_STEP
-            | MediaPlayerEntityFeature.VOLUME_MUTE
-            | MediaPlayerEntityFeature.NEXT_TRACK
-            | MediaPlayerEntityFeature.PREVIOUS_TRACK
-            | MediaPlayerEntityFeature.PLAY_MEDIA
-        )
-
     def _send_wol(self) -> None:
         """Send a Wake-on-LAN magic packet to the TV."""
         try:
