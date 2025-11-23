@@ -34,7 +34,7 @@ A custom Home Assistant integration for controlling Loewe Television sets via th
 
 ## Configuration
 
-### Option 1: UI Configuration (Recommended)
+This integration is configured through the Home Assistant UI only. YAML configuration is not supported.
 
 1. Go to **Settings** → **Devices & Services** in Home Assistant
 2. Click the **+ ADD INTEGRATION** button
@@ -47,27 +47,14 @@ A custom Home Assistant integration for controlling Loewe Television sets via th
 
 You can later modify these settings by clicking **CONFIGURE** on the Loewe TV integration card.
 
-### Option 2: YAML Configuration
+### Configuration Parameters
 
-Alternatively, add the following to your `configuration.yaml`:
-
-```yaml
-media_player:
-  - platform: loewe_tv
-    host: 192.168.1.100  # IP address of your Loewe TV
-    mac: "AA:BB:CC:DD:EE:FF"  # MAC address for Wake-on-LAN
-    name: "Living Room TV"  # Optional, defaults to "Loewe TV"
-    port: 905  # Optional, defaults to 905 (older models may use 8080)
-```
-
-### Configuration Variables
-
-| Variable | Required | Description | Default |
-|----------|----------|-------------|---------|
-| `host` | Yes | IP address of your Loewe TV | - |
-| `mac` | Yes | MAC address for Wake-on-LAN (formats: AA:BB:CC:DD:EE:FF or AABBCCDDEEFF) | - |
-| `name` | No | Friendly name for the TV | "Loewe TV" |
-| `port` | No | Port number for SOAP API | 905 |
+| Parameter | Required | Description | Default |
+|-----------|----------|-------------|---------|
+| `Host` | Yes | IP address of your Loewe TV | - |
+| `MAC Address` | Yes | MAC address for Wake-on-LAN (formats: AA:BB:CC:DD:EE:FF or AABBCCDDEEFF) | - |
+| `Name` | No | Friendly name for the TV | "Loewe TV" |
+| `Port` | No | Port number for SOAP API | 905 |
 
 ### TV Pairing (First Time Setup)
 

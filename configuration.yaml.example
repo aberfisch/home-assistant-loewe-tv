@@ -1,14 +1,26 @@
-# Example configuration for Loewe TV integration
-# Add this to your configuration.yaml file
+# Loewe TV Integration Configuration
+#
+# IMPORTANT: This integration does NOT support YAML configuration.
+# It must be configured through the Home Assistant UI.
+#
+# To set up the integration:
+# 1. Go to Settings → Devices & Services in Home Assistant
+# 2. Click the + ADD INTEGRATION button
+# 3. Search for "Loewe TV"
+# 4. Follow the setup wizard to enter your TV details
+#
+# The following YAML configuration format is NO LONGER SUPPORTED:
+#
+# media_player:
+#   - platform: loewe_tv
+#     host: 192.168.1.100
+#     mac: "AA:BB:CC:DD:EE:FF"
+#     name: "Living Room TV"
+#     port: 905
+#
+# Please use the UI configuration method instead.
 
-media_player:
-  - platform: loewe_tv
-    host: 192.168.1.100  # Replace with your Loewe TV IP address
-    mac: "AA:BB:CC:DD:EE:FF"  # Replace with your Loewe TV MAC address
-    name: "Living Room TV"  # Optional: Custom name for your TV
-    port: 905  # Optional: Port number (default: 905, older models may use 8080)
-
-# Optional: Enable debug logging
+# Optional: Enable debug logging for troubleshooting
 # logger:
 #   default: info
 #   logs:
