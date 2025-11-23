@@ -325,14 +325,28 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             root = ET.fromstring(resp_text)
             ns = {"ltv": NAMESPACE}
             
-            # Try with namespace prefix first
-            value = root.find(".//ltv:Value", ns)
-            if value is None:
+            # First, find the VolumeResponse element to avoid picking up wrong Value elements
+            volume_response = root.find(".//ltv:VolumeResponse", ns)
+            if volume_response is None:
                 # Fallback: try with explicit namespace (for default namespace case)
-                value = root.find(".//{%s}Value" % NAMESPACE)
+                volume_response = root.find(".//{%s}VolumeResponse" % NAMESPACE)
+            if volume_response is None:
+                # Fallback: try without any namespace
+                volume_response = root.find(".//VolumeResponse")
+            
+            if volume_response is None:
+                _LOGGER.warning("Could not find VolumeResponse element in %s response", operation)
+                self._log_parse_failure(operation, resp_text)
+                return None
+            
+            # Now find the Value element within VolumeResponse
+            value = volume_response.find("ltv:Value", ns)
+            if value is None:
+                # Fallback: try with explicit namespace
+                value = volume_response.find("{%s}Value" % NAMESPACE)
             if value is None:
                 # Fallback: try without any namespace
-                value = root.find(".//Value")
+                value = volume_response.find("Value")
             
             if value is not None and value.text:
                 volume = int(value.text)
@@ -341,7 +355,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 _LOGGER.debug("%s response: parsed volume %d", operation, volume)
                 return volume
             else:
-                _LOGGER.warning("Could not find Value element in %s response", operation)
+                _LOGGER.warning("Could not find Value element in VolumeResponse from %s", operation)
                 self._log_parse_failure(operation, resp_text)
         except ValueError as err:
             _LOGGER.error("Invalid volume value in %s response: %s", operation, err)
@@ -471,21 +485,35 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             root = ET.fromstring(resp_text)
             ns = {"ltv": NAMESPACE}
             
-            # Try with namespace prefix first
-            value = root.find(".//ltv:Value", ns)
-            if value is None:
+            # First, find the MuteResponse element to avoid picking up wrong Value elements
+            mute_response = root.find(".//ltv:MuteResponse", ns)
+            if mute_response is None:
                 # Fallback: try with explicit namespace (for default namespace case)
-                value = root.find(".//{%s}Value" % NAMESPACE)
+                mute_response = root.find(".//{%s}MuteResponse" % NAMESPACE)
+            if mute_response is None:
+                # Fallback: try without any namespace
+                mute_response = root.find(".//MuteResponse")
+            
+            if mute_response is None:
+                _LOGGER.warning("Could not find MuteResponse element in GetMute response")
+                self._log_parse_failure("GetMute", resp_text)
+                return None
+            
+            # Now find the Value element within MuteResponse
+            value = mute_response.find("ltv:Value", ns)
+            if value is None:
+                # Fallback: try with explicit namespace
+                value = mute_response.find("{%s}Value" % NAMESPACE)
             if value is None:
                 # Fallback: try without any namespace
-                value = root.find(".//Value")
+                value = mute_response.find("Value")
             
             if value is not None and value.text:
                 mute_value = value.text.lower() == "true" or value.text == "1"
                 _LOGGER.debug("Parsed mute from response: %s", mute_value)
                 return mute_value
             else:
-                _LOGGER.warning("Could not find Value element in GetMute response")
+                _LOGGER.warning("Could not find Value element in MuteResponse from GetMute")
                 self._log_parse_failure("GetMute", resp_text)
         except Exception as err:
             _LOGGER.error("Error parsing mute response: %s", err)
