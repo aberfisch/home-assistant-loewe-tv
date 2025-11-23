@@ -325,8 +325,16 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             root = ET.fromstring(resp_text)
             ns = {"ltv": NAMESPACE}
             
-            # First, find the VolumeResponse element to avoid picking up wrong Value elements
-            volume_response = root.find(".//ltv:VolumeResponse", ns)
+            # Check if root element is VolumeResponse (handles case where it's not wrapped in SOAP envelope)
+            volume_response = None
+            if root.tag == f"{{{NAMESPACE}}}VolumeResponse":
+                volume_response = root
+            elif root.tag == "VolumeResponse":
+                volume_response = root
+            
+            # If not root, find VolumeResponse element as descendant
+            if volume_response is None:
+                volume_response = root.find(".//ltv:VolumeResponse", ns)
             if volume_response is None:
                 # Fallback: try with explicit namespace (for default namespace case)
                 volume_response = root.find(".//{%s}VolumeResponse" % NAMESPACE)
@@ -485,8 +493,16 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             root = ET.fromstring(resp_text)
             ns = {"ltv": NAMESPACE}
             
-            # First, find the MuteResponse element to avoid picking up wrong Value elements
-            mute_response = root.find(".//ltv:MuteResponse", ns)
+            # Check if root element is MuteResponse (handles case where it's not wrapped in SOAP envelope)
+            mute_response = None
+            if root.tag == f"{{{NAMESPACE}}}MuteResponse":
+                mute_response = root
+            elif root.tag == "MuteResponse":
+                mute_response = root
+            
+            # If not root, find MuteResponse element as descendant
+            if mute_response is None:
+                mute_response = root.find(".//ltv:MuteResponse", ns)
             if mute_response is None:
                 # Fallback: try with explicit namespace (for default namespace case)
                 mute_response = root.find(".//{%s}MuteResponse" % NAMESPACE)
