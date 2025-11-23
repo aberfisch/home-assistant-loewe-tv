@@ -314,6 +314,12 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         This handles both SOAP envelope wrapped responses and literal body responses
         where the target element is the root element itself.
         
+        For example, a SOAP-wrapped response looks like:
+          <soapenv:Envelope><soapenv:Body><VolumeResponse>...</VolumeResponse></soapenv:Body></soapenv:Envelope>
+        
+        But a literal body response has VolumeResponse as the root:
+          <VolumeResponse>...</VolumeResponse>
+        
         Args:
             root: The XML root element
             element_name: Name of the element to find (e.g., "VolumeResponse", "MuteResponse")
