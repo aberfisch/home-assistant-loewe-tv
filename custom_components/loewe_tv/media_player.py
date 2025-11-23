@@ -322,6 +322,49 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         """
         _LOGGER.debug("%s response length: %d bytes", operation, len(resp_text))
 
+    def _parse_volume_response(self, resp_text: str, operation: str) -> int | None:
+        """Parse volume value from a VolumeResponse.
+        
+        This uses a triple-fallback XML parsing approach to handle different
+        namespace configurations that may be returned by different TV models.
+        
+        Args:
+            resp_text: The XML response text
+            operation: Name of the operation (e.g., "GetVolume", "SetVolume") for logging
+            
+        Returns:
+            Volume value (0-99) or None if parsing failed
+        """
+        try:
+            root = ET.fromstring(resp_text)
+            ns = {"ltv": NAMESPACE}
+            
+            # Try with namespace prefix first
+            value = root.find(".//ltv:Value", ns)
+            if value is None:
+                # Fallback: try with explicit namespace (for default namespace case)
+                value = root.find(".//{%s}Value" % NAMESPACE)
+            if value is None:
+                # Fallback: try without any namespace
+                value = root.find(".//Value")
+            
+            if value is not None and value.text:
+                volume = int(value.text)
+                # Validate and clamp volume to valid range
+                volume = self._validate_volume(volume)
+                _LOGGER.debug("%s response: parsed volume %d", operation, volume)
+                return volume
+            else:
+                _LOGGER.warning("Could not find Value element in %s response", operation)
+                self._log_parse_failure(operation, resp_text)
+        except ValueError as err:
+            _LOGGER.error("Invalid volume value in %s response: %s", operation, err)
+            self._log_parse_failure(operation, resp_text)
+        except Exception as err:
+            _LOGGER.error("Error parsing %s response: %s", operation, err)
+            self._log_parse_failure(operation, resp_text)
+        return None
+
     def _inject_rc_key(self, key_code: int, use_wol: bool = False) -> bool:
         """Send a remote control key press/release sequence.
         
@@ -378,35 +421,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             _LOGGER.debug("No response from GetVolume request")
             return None
         
-        try:
-            root = ET.fromstring(resp_text)
-            ns = {"ltv": NAMESPACE}
-            
-            # Try with namespace prefix first
-            value = root.find(".//ltv:Value", ns)
-            if value is None:
-                # Fallback: try with explicit namespace (for default namespace case)
-                value = root.find(".//{%s}Value" % NAMESPACE)
-            if value is None:
-                # Fallback: try without any namespace
-                value = root.find(".//Value")
-            
-            if value is not None and value.text:
-                volume = int(value.text)
-                # Validate and clamp volume to valid range
-                volume = self._validate_volume(volume)
-                _LOGGER.debug("Parsed volume from response: %d", volume)
-                return volume
-            else:
-                _LOGGER.warning("Could not find Value element in GetVolume response")
-                self._log_parse_failure("GetVolume", resp_text)
-        except ValueError as err:
-            _LOGGER.error("Invalid volume value in response: %s", err)
-            self._log_parse_failure("GetVolume", resp_text)
-        except Exception as err:
-            _LOGGER.error("Error parsing volume response: %s", err)
-            self._log_parse_failure("GetVolume", resp_text)
-        return None
+        return self._parse_volume_response(resp_text, "GetVolume")
 
     def _set_volume(self, volume: int) -> int | None:
         """Set volume level (0-99).
@@ -439,35 +454,10 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             return None
         
         # Parse the VolumeResponse to get the actual volume set
-        try:
-            root = ET.fromstring(resp_text)
-            ns = {"ltv": NAMESPACE}
-            
-            # Try with namespace prefix first
-            value = root.find(".//ltv:Value", ns)
-            if value is None:
-                # Fallback: try with explicit namespace (for default namespace case)
-                value = root.find(".//{%s}Value" % NAMESPACE)
-            if value is None:
-                # Fallback: try without any namespace
-                value = root.find(".//Value")
-            
-            if value is not None and value.text:
-                actual_volume = int(value.text)
-                # Validate and clamp volume to valid range
-                actual_volume = self._validate_volume(actual_volume)
-                _LOGGER.debug("SetVolume response: requested %d, TV confirmed %d", volume, actual_volume)
-                return actual_volume
-            else:
-                _LOGGER.warning("Could not find Value element in SetVolume response")
-                self._log_parse_failure("SetVolume", resp_text)
-        except ValueError as err:
-            _LOGGER.error("Invalid volume value in SetVolume response: %s", err)
-            self._log_parse_failure("SetVolume", resp_text)
-        except Exception as err:
-            _LOGGER.error("Error parsing SetVolume response: %s", err)
-            self._log_parse_failure("SetVolume", resp_text)
-        return None
+        actual_volume = self._parse_volume_response(resp_text, "SetVolume")
+        if actual_volume is not None:
+            _LOGGER.debug("SetVolume: requested %d, TV confirmed %d", volume, actual_volume)
+        return actual_volume
 
     def _get_mute(self) -> bool | None:
         """Get current mute status."""
