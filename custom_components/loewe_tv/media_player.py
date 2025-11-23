@@ -52,7 +52,6 @@ async def async_setup_platform(
     # It can only be configured through the UI (config flow).
     # This function exists to prevent error messages when users
     # attempt YAML configuration.
-    return
 
 
 async def async_setup_entry(
