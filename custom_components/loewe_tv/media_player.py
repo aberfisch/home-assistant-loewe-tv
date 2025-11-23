@@ -322,6 +322,49 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         """
         _LOGGER.debug("%s response length: %d bytes", operation, len(resp_text))
 
+    def _parse_volume_response(self, resp_text: str, operation: str) -> int | None:
+        """Parse volume value from a VolumeResponse.
+        
+        This uses a triple-fallback XML parsing approach to handle different
+        namespace configurations that may be returned by different TV models.
+        
+        Args:
+            resp_text: The XML response text
+            operation: Name of the operation (e.g., "GetVolume", "SetVolume") for logging
+            
+        Returns:
+            Volume value (0-99) or None if parsing failed
+        """
+        try:
+            root = ET.fromstring(resp_text)
+            ns = {"ltv": NAMESPACE}
+            
+            # Try with namespace prefix first
+            value = root.find(".//ltv:Value", ns)
+            if value is None:
+                # Fallback: try with explicit namespace (for default namespace case)
+                value = root.find(".//{%s}Value" % NAMESPACE)
+            if value is None:
+                # Fallback: try without any namespace
+                value = root.find(".//Value")
+            
+            if value is not None and value.text:
+                volume = int(value.text)
+                # Validate and clamp volume to valid range
+                volume = self._validate_volume(volume)
+                _LOGGER.debug("%s response: parsed volume %d", operation, volume)
+                return volume
+            else:
+                _LOGGER.warning("Could not find Value element in %s response", operation)
+                self._log_parse_failure(operation, resp_text)
+        except ValueError as err:
+            _LOGGER.error("Invalid volume value in %s response: %s", operation, err)
+            self._log_parse_failure(operation, resp_text)
+        except Exception as err:
+            _LOGGER.error("Error parsing %s response: %s", operation, err)
+            self._log_parse_failure(operation, resp_text)
+        return None
+
     def _inject_rc_key(self, key_code: int, use_wol: bool = False) -> bool:
         """Send a remote control key press/release sequence.
         
@@ -378,40 +421,16 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             _LOGGER.debug("No response from GetVolume request")
             return None
         
-        try:
-            root = ET.fromstring(resp_text)
-            ns = {"ltv": NAMESPACE}
-            
-            # Try with namespace prefix first
-            value = root.find(".//ltv:Value", ns)
-            if value is None:
-                # Fallback: try with explicit namespace (for default namespace case)
-                value = root.find(".//{%s}Value" % NAMESPACE)
-            if value is None:
-                # Fallback: try without any namespace
-                value = root.find(".//Value")
-            
-            if value is not None and value.text:
-                volume = int(value.text)
-                # Validate and clamp volume to valid range
-                volume = self._validate_volume(volume)
-                _LOGGER.debug("Parsed volume from response: %d", volume)
-                return volume
-            else:
-                _LOGGER.warning("Could not find Value element in GetVolume response")
-                self._log_parse_failure("GetVolume", resp_text)
-        except ValueError as err:
-            _LOGGER.error("Invalid volume value in response: %s", err)
-            self._log_parse_failure("GetVolume", resp_text)
-        except Exception as err:
-            _LOGGER.error("Error parsing volume response: %s", err)
-            self._log_parse_failure("GetVolume", resp_text)
-        return None
+        return self._parse_volume_response(resp_text, "GetVolume")
 
-    def _set_volume(self, volume: int) -> bool:
-        """Set volume level (0-99)."""
+    def _set_volume(self, volume: int) -> int | None:
+        """Set volume level (0-99).
+        
+        Returns:
+            The actual volume value returned by the TV, or None on failure
+        """
         if not self._ensure_authenticated():
-            return False
+            return None
         
         # Validate and clamp volume to valid range
         volume = self._validate_volume(volume)
@@ -430,14 +449,15 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         """
         
         resp_text = self._send_soap_request(soap_body, "SetVolume")
-        success = resp_text is not None
+        if not resp_text:
+            _LOGGER.warning("Failed to set volume to %d - no response", volume)
+            return None
         
-        if success:
-            _LOGGER.debug("Volume set command sent successfully for value %d", volume)
-        else:
-            _LOGGER.warning("Failed to set volume to %d", volume)
-        
-        return success
+        # Parse the VolumeResponse to get the actual volume set
+        actual_volume = self._parse_volume_response(resp_text, "SetVolume")
+        if actual_volume is not None:
+            _LOGGER.debug("SetVolume: requested %d, TV confirmed %d", volume, actual_volume)
+        return actual_volume
 
     def _get_mute(self) -> bool | None:
         """Get current mute status."""
@@ -686,16 +706,13 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
 
         volume_percent = round(volume * 99)
         _LOGGER.info("Setting volume from HA value %.2f to TV value %d (0-99 range)", volume, volume_percent)
-        success = await self._hass.async_add_executor_job(self._set_volume, volume_percent)
-        if success:
-            _LOGGER.info("Successfully set volume to %d (0-99 range)", volume_percent)
-            # Query actual volume from TV to ensure UI reflects the correct value
-            actual_volume = await self._hass.async_add_executor_job(self._get_volume)
-            if actual_volume is not None:
-                self._volume = actual_volume
-                _LOGGER.info("Volume confirmed as %d after set operation (HA value: %.2f)", actual_volume, actual_volume / 99)
-                # Notify Home Assistant that the state has changed
-                self.async_write_ha_state()
+        # SetVolume returns the actual volume set in the VolumeResponse
+        actual_volume = await self._hass.async_add_executor_job(self._set_volume, volume_percent)
+        if actual_volume is not None:
+            self._volume = actual_volume
+            _LOGGER.info("Volume confirmed as %d after set operation (HA value: %.2f)", actual_volume, actual_volume / 99)
+            # Notify Home Assistant that the state has changed
+            self.async_write_ha_state()
         else:
             _LOGGER.error("Failed to set volume to %d (0-99 range)", volume_percent)
 
