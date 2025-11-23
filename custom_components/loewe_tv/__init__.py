@@ -12,12 +12,6 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.MEDIA_PLAYER]
 
 
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Set up the Loewe TV component."""
-    _LOGGER.debug("Setting up Loewe TV integration")
-    return True
-
-
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Loewe TV from a config entry."""
     _LOGGER.debug("Setting up Loewe TV config entry")
