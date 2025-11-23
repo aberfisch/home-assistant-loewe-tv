@@ -119,7 +119,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     @property
     def volume_level(self) -> float:
         """Volume level of the media player (0..1)."""
-        return self._volume 
+        return self._volume / 99 
 
     @property
     def is_volume_muted(self) -> bool:
@@ -680,8 +680,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
 
     async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, range 0..1."""
-        if not 0 <= volume <= 99:
-            _LOGGER.error("Volume must be between 0 and 99, got: %s", volume)
+        if not 0 <= volume <= 1:
+            _LOGGER.error("Volume must be between 0 and 1, got: %s", volume)
             return
 
         volume_percent = round(volume * 99)
