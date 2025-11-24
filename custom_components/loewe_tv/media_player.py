@@ -31,11 +31,12 @@ NAMESPACE = "urn:loewe.de:RemoteTV:Tablet"
 SOAP_NS_1_1 = "http://schemas.xmlsoap.org/soap/envelope/"
 SOAP_NS_1_2 = "http://www.w3.org/2003/05/soap-envelope"
 # Volume range constants
-# Loewe TV returns volume as a string where values > 5 digits have the last 4 digits removed
-# to get the actual volume (0-99 range). When setting volume, we multiply by VOLUME_MULTIPLIER.
+# Loewe TV returns volume as a string. When the string has 5+ digits (volume * 10000 format),
+# we remove the last 4 digits to get the actual volume (0-99 range).
+# When setting volume, we multiply by VOLUME_MULTIPLIER.
 VOLUME_MIN = 0
 VOLUME_MAX = 99
-VOLUME_MAX_DIGITS = 5  # Max digits before truncation is needed
+VOLUME_MIN_DIGITS_FOR_TRUNCATION = 5  # Min digits for truncation to apply
 VOLUME_SUFFIX_DIGITS = 4  # Number of trailing digits to remove when truncating
 VOLUME_MULTIPLIER = 10000  # Multiplier to convert from 0-99 to TV's 0-999999 range
 
@@ -500,8 +501,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                     _LOGGER.warning("Invalid volume string '%s' in %s response", volume_str, operation)
                     self._log_parse_failure(operation, resp_text, root)
                     return None
-                # If volume string has more than VOLUME_MAX_DIGITS, remove the last VOLUME_SUFFIX_DIGITS
-                if len(volume_str) > VOLUME_MAX_DIGITS:
+                # If volume string has 5+ digits (volume * 10000 format), remove the last 4 digits
+                if len(volume_str) >= VOLUME_MIN_DIGITS_FOR_TRUNCATION:
                     volume_str = volume_str[:-VOLUME_SUFFIX_DIGITS]
                 volume = int(volume_str)
                 # Validate and clamp volume to valid range (0-99)
