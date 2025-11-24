@@ -321,6 +321,30 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         """
         _LOGGER.debug("%s response length: %d bytes", operation, len(resp_text))
 
+    def _is_tv_reachable(self) -> bool:
+        """Check if TV is reachable via a simple HTTP connection test.
+        
+        This performs a basic connectivity check without requiring authentication.
+        
+        Returns:
+            True if TV responds to HTTP connection, False otherwise
+        """
+        try:
+            conn = http.client.HTTPConnection(self._host, self._port, timeout=3)
+            # Try to connect and send a simple GET request
+            conn.request("GET", self._path)
+            response = conn.getresponse()
+            conn.close()
+            # Any response (even error) means TV is reachable
+            _LOGGER.debug("TV reachability check: got response status %d", response.status)
+            return True
+        except (socket.timeout, socket.error, http.client.HTTPException) as err:
+            _LOGGER.debug("TV reachability check failed: %s", err)
+            return False
+        except Exception as err:
+            _LOGGER.debug("Unexpected error during TV reachability check: %s", err)
+            return False
+
     def _find_response_element(self, root: ET.Element, element_name: str) -> ET.Element | None:
         """Find a response element in XML, checking root first then descendants.
         
@@ -704,15 +728,45 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         volume = await self._hass.async_add_executor_job(self._get_volume)
         
         if volume is None:
-            # TV is not reachable or authentication failed
-            self._state = MediaPlayerState.OFF
-            # Reset client_id to force re-authentication on next successful connection
-            self._client_id = None
-            return
-
-        # TV is reachable, assume it's ON
-        self._state = MediaPlayerState.ON
-        self._volume = volume
+            # Volume request failed - could be authentication issue or TV is off
+            # Check if TV is actually reachable before declaring it OFF
+            is_reachable = await self._hass.async_add_executor_job(self._is_tv_reachable)
+            
+            if is_reachable:
+                # TV is reachable but we couldn't get volume - likely authentication issue
+                _LOGGER.debug("TV is reachable but volume query failed, attempting re-authentication")
+                # Reset client_id to force re-authentication
+                self._client_id = None
+                # Try to authenticate and get volume again
+                auth_success = await self._hass.async_add_executor_job(self._ensure_authenticated)
+                if auth_success:
+                    volume = await self._hass.async_add_executor_job(self._get_volume)
+                    if volume is not None:
+                        # Successfully re-authenticated and got volume
+                        _LOGGER.info("Re-authentication successful, TV is ON")
+                        self._state = MediaPlayerState.ON
+                        self._volume = volume
+                    else:
+                        # Authentication succeeded but still no volume - TV might be starting up
+                        _LOGGER.warning("Authentication succeeded but couldn't get volume, TV may be starting up")
+                        self._state = MediaPlayerState.OFF
+                        return
+                else:
+                    # Re-authentication failed but TV is reachable - might need pairing
+                    _LOGGER.warning("TV is reachable but re-authentication failed, may need pairing")
+                    self._state = MediaPlayerState.OFF
+                    return
+            else:
+                # TV is not reachable at all
+                _LOGGER.debug("TV is not reachable, setting state to OFF")
+                self._state = MediaPlayerState.OFF
+                # Reset client_id to force re-authentication on next successful connection
+                self._client_id = None
+                return
+        else:
+            # Successfully got volume, TV is ON
+            self._state = MediaPlayerState.ON
+            self._volume = volume
 
         # Get mute status
         mute = await self._hass.async_add_executor_job(self._get_mute)
