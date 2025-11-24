@@ -830,7 +830,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                         mute_fetched = True
                         if mute is not None:
                             # GetMute succeeded - TV is ON and authenticated
-                            _LOGGER.info("Re-authentication successful, TV is ON (verified via GetMute)")
+                            _LOGGER.info("TV state verified as ON via GetMute after re-authentication")
                             self._state = MediaPlayerState.ON
                             self._is_volume_muted = mute
                             # Volume will remain at last known value since GetVolume failed
@@ -841,7 +841,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                             playback_fetched = True
                             if playback is not None:
                                 # GetCurrentPlayback succeeded - TV is ON
-                                _LOGGER.info("Re-authentication successful, TV is ON (verified via GetCurrentPlayback)")
+                                _LOGGER.info("TV state verified as ON via GetCurrentPlayback after re-authentication")
                                 self._state = MediaPlayerState.ON
                                 # Update media title from playback info
                                 locator = playback.get("locator")
