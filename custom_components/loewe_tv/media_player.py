@@ -493,6 +493,11 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             if value is not None and value.text:
                 # Only take the first 2 characters to get the actual volume (0-99)
                 volume_str = value.text[:2]
+                # Validate that the extracted string contains only digits
+                if not volume_str or not volume_str.isdigit():
+                    _LOGGER.warning("Invalid volume string '%s' from raw value '%s' in %s response", volume_str, value.text, operation)
+                    self._log_parse_failure(operation, resp_text, root)
+                    return None
                 volume = int(volume_str)
                 # Validate and clamp volume to valid range
                 volume = self._validate_volume(volume)
