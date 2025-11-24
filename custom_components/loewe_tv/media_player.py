@@ -329,6 +329,9 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         """Check if TV is reachable via a simple HTTP connection test.
         
         This performs a basic connectivity check without requiring authentication.
+        We use a GET request (even though SOAP expects POST) because we only care
+        if the TV's HTTP server responds at all - any response (including errors
+        like 405 Method Not Allowed) indicates the TV is reachable.
         
         Returns:
             True if TV responds to HTTP connection, False otherwise
