@@ -41,6 +41,19 @@ RC_KEY_CHANNEL_UP = 32
 RC_KEY_CHANNEL_DOWN = 33
 
 
+async def async_setup_platform(
+    hass: HomeAssistant,
+    config: dict,
+    async_add_entities: AddEntitiesCallback,
+    discovery_info: dict | None = None,
+) -> None:
+    """Set up the Loewe TV platform (YAML not supported)."""
+    # This integration does not support YAML configuration.
+    # It can only be configured through the UI (config flow).
+    # This function exists to prevent error messages when users
+    # attempt YAML configuration.
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
