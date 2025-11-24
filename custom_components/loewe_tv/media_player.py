@@ -312,14 +312,23 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             volume = max(0, min(99, volume))
         return volume
 
-    def _log_parse_failure(self, operation: str, resp_text: str) -> None:
-        """Log parsing failure with response length.
+    def _log_parse_failure(self, operation: str, resp_text: str, root: ET.Element | None = None) -> None:
+        """Log parsing failure with response details.
         
         Args:
             operation: Name of the operation (e.g., "GetVolume")
             resp_text: Response text
+            root: Optional parsed XML root element
         """
         _LOGGER.debug("%s response length: %d bytes", operation, len(resp_text))
+        if root is not None:
+            _LOGGER.debug("%s response root element: %s", operation, root.tag)
+            # Log first few child elements to help diagnose structure issues
+            children = list(root)
+            if children:
+                _LOGGER.debug("%s response has %d child elements", operation, len(children))
+                for child in children[:3]:  # Log first 3 children only
+                    _LOGGER.debug("%s response child element: %s", operation, child.tag)
 
     def _find_response_element(self, root: ET.Element, element_name: str) -> ET.Element | None:
         """Find a response element in XML, checking root first then descendants.
@@ -340,7 +349,23 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         Returns:
             The found element or None
         """
-        ns = {"ltv": NAMESPACE}
+        ns = {"ltv": NAMESPACE, "soap": "http://schemas.xmlsoap.org/soap/envelope/"}
+        
+        # Check for SOAP Fault first
+        fault = root.find(".//soap:Fault", ns)
+        if fault is None:
+            # Try with alternate SOAP namespaces
+            fault = root.find(".//{http://schemas.xmlsoap.org/soap/envelope/}Fault")
+        if fault is None:
+            # Try without namespace prefix (some implementations might not use namespace)
+            fault = root.find(".//Fault")
+        if fault is not None:
+            faultstring = fault.find("faultstring")
+            if faultstring is not None and faultstring.text:
+                _LOGGER.warning("SOAP Fault received: %s", faultstring.text)
+            else:
+                _LOGGER.warning("SOAP Fault received (no faultstring)")
+            return None
         
         # Check if root element is the target element
         if root.tag == f"{{{NAMESPACE}}}{element_name}":
@@ -348,7 +373,29 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         if root.tag == element_name:
             return root
         
-        # Search for element as descendant
+        # Try to find SOAP Body first and search within it
+        soap_body = root.find(".//soap:Body", ns)
+        if soap_body is None:
+            soap_body = root.find(".//{http://schemas.xmlsoap.org/soap/envelope/}Body")
+        if soap_body is None:
+            # Try with common SOAP namespace variations
+            for soap_ns in ["http://www.w3.org/2003/05/soap-envelope", "http://schemas.xmlsoap.org/soap/envelope/"]:
+                soap_body = root.find(f".//{{{soap_ns}}}Body")
+                if soap_body is not None:
+                    break
+        
+        # If we found a SOAP Body, search within it first
+        if soap_body is not None:
+            # Search within Body for our element
+            element = soap_body.find(f"ltv:{element_name}", ns)
+            if element is None:
+                element = soap_body.find(f"{{{NAMESPACE}}}{element_name}")
+            if element is None:
+                element = soap_body.find(element_name)
+            if element is not None:
+                return element
+        
+        # Fallback: Search for element as descendant anywhere in the tree
         element = root.find(f".//ltv:{element_name}", ns)
         if element is None:
             # Fallback: try with explicit namespace (for default namespace case)
@@ -380,8 +427,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             volume_response = self._find_response_element(root, "VolumeResponse")
             
             if volume_response is None:
-                _LOGGER.warning("Could not find VolumeResponse element in %s response", operation)
-                self._log_parse_failure(operation, resp_text)
+                _LOGGER.warning("Could not find VolumeResponse element in %s response (root tag: %s)", operation, root.tag)
+                self._log_parse_failure(operation, resp_text, root)
                 return None
             
             # Now find the Value element within VolumeResponse
@@ -401,13 +448,13 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 return volume
             else:
                 _LOGGER.warning("Could not find Value element in VolumeResponse from %s", operation)
-                self._log_parse_failure(operation, resp_text)
+                self._log_parse_failure(operation, resp_text, root)
         except ValueError as err:
             _LOGGER.error("Invalid volume value in %s response: %s", operation, err)
-            self._log_parse_failure(operation, resp_text)
+            self._log_parse_failure(operation, resp_text, root if 'root' in locals() else None)
         except Exception as err:
             _LOGGER.error("Error parsing %s response: %s", operation, err)
-            self._log_parse_failure(operation, resp_text)
+            self._log_parse_failure(operation, resp_text, root if 'root' in locals() else None)
         return None
 
     def _inject_rc_key(self, key_code: int, use_wol: bool = False) -> bool:
@@ -534,8 +581,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             mute_response = self._find_response_element(root, "MuteResponse")
             
             if mute_response is None:
-                _LOGGER.warning("Could not find MuteResponse element in GetMute response")
-                self._log_parse_failure("GetMute", resp_text)
+                _LOGGER.warning("Could not find MuteResponse element in GetMute response (root tag: %s)", root.tag)
+                self._log_parse_failure("GetMute", resp_text, root)
                 return None
             
             # Now find the Value element within MuteResponse
@@ -553,10 +600,10 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 return mute_value
             else:
                 _LOGGER.warning("Could not find Value element in MuteResponse from GetMute")
-                self._log_parse_failure("GetMute", resp_text)
+                self._log_parse_failure("GetMute", resp_text, root)
         except Exception as err:
             _LOGGER.error("Error parsing mute response: %s", err)
-            self._log_parse_failure("GetMute", resp_text)
+            self._log_parse_failure("GetMute", resp_text, root if 'root' in locals() else None)
         return None
 
     def _set_mute(self, mute: bool) -> bool:
