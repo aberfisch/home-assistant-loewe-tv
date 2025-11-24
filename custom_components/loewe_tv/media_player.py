@@ -31,10 +31,10 @@ NAMESPACE = "urn:loewe.de:RemoteTV:Tablet"
 SOAP_NS_1_1 = "http://schemas.xmlsoap.org/soap/envelope/"
 SOAP_NS_1_2 = "http://www.w3.org/2003/05/soap-envelope"
 # Volume range constants
-# Loewe TV returns volume as a string where only the first 2 characters
-# represent the actual volume (0-99 range, where 99 = 100%)
+# Loewe TV volume range is 0-999999, where 10000 = 1%, 500000 = 50%, 999999 = 100%
+# This is defined in the WSDL schema for SetVolumeRequestType
 VOLUME_MIN = 0
-VOLUME_MAX = 99
+VOLUME_MAX = 999999
 
 # WOL and retry settings
 WOL_WAIT_TIME = 10  # Seconds to wait for TV to wake up after WOL
@@ -314,13 +314,13 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         return self._request_access(use_wol=use_wol)
 
     def _validate_volume(self, volume: int) -> int:
-        """Validate and clamp volume to valid range (0-99).
+        """Validate and clamp volume to valid range (0-999999).
         
         Args:
             volume: Volume value to validate
             
         Returns:
-            Clamped volume value in range 0-99
+            Clamped volume value in range 0-999999
         """
         if not VOLUME_MIN <= volume <= VOLUME_MAX:
             _LOGGER.warning("Volume value out of valid range (%d-%d): %d, clamping", VOLUME_MIN, VOLUME_MAX, volume)
@@ -458,15 +458,15 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         This uses a triple-fallback XML parsing approach to handle different
         namespace configurations that may be returned by different TV models.
         
-        The TV returns volume as a string, but only the first 2 characters
-        represent the actual volume value (0-99 range).
+        The TV returns volume as an integer string in the range 0-999999,
+        where 10000 = 1%, 500000 = 50%, 999999 = 100%.
         
         Args:
             resp_text: The XML response text
             operation: Name of the operation (e.g., "GetVolume", "SetVolume") for logging
             
         Returns:
-            Volume value (0-99) or None if parsing failed
+            Volume value (0-999999) or None if parsing failed
         """
         root = None
         try:
@@ -491,11 +491,11 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 value = volume_response.find("Value")
             
             if value is not None and value.text:
-                # Only take the first 2 characters to get the actual volume (0-99)
-                volume_str = value.text[:2]
-                # Validate that the extracted string contains only digits
+                # Parse the full volume string (0-999999 range)
+                volume_str = value.text.strip()
+                # Validate that the string contains only digits
                 if not volume_str or not volume_str.isdigit():
-                    _LOGGER.warning("Invalid volume string '%s' from raw value '%s' in %s response", volume_str, value.text, operation)
+                    _LOGGER.warning("Invalid volume string '%s' in %s response", volume_str, operation)
                     self._log_parse_failure(operation, resp_text, root)
                     return None
                 volume = int(volume_str)
@@ -573,7 +573,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         return self._parse_volume_response(resp_text, "GetVolume")
 
     def _set_volume(self, volume: int) -> int | None:
-        """Set volume level (0-99).
+        """Set volume level (0-999999).
         
         Returns:
             The actual volume value returned by the TV, or None on failure
