@@ -27,6 +27,12 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_PORT = 905
 NAMESPACE = "urn:loewe.de:RemoteTV:Tablet"
 
+# Volume range constants
+# Loewe TV uses a range of 0-999999 (approximately 10000 units per percentage point)
+# According to the TV specification: 100000 = 10%, 999999 = 100%
+VOLUME_MIN = 0
+VOLUME_MAX = 999999
+
 # WOL and retry settings
 WOL_WAIT_TIME = 10  # Seconds to wait for TV to wake up after WOL
 RETRY_DELAY = 3  # Seconds to wait between retry attempts
@@ -136,7 +142,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     @property
     def volume_level(self) -> float:
         """Volume level of the media player (0..1)."""
-        return self._volume / 99 
+        return self._volume / VOLUME_MAX 
 
     @property
     def is_volume_muted(self) -> bool:
@@ -303,17 +309,17 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         return self._request_access(use_wol=use_wol)
 
     def _validate_volume(self, volume: int) -> int:
-        """Validate and clamp volume to valid range (0-99).
+        """Validate and clamp volume to valid range (0-999999).
         
         Args:
             volume: Volume value to validate
             
         Returns:
-            Clamped volume value in range 0-99
+            Clamped volume value in range 0-999999
         """
-        if not 0 <= volume <= 99:
-            _LOGGER.warning("Volume value out of valid range (0-99): %d, clamping", volume)
-            volume = max(0, min(99, volume))
+        if not VOLUME_MIN <= volume <= VOLUME_MAX:
+            _LOGGER.warning("Volume value out of valid range (%d-%d): %d, clamping", VOLUME_MIN, VOLUME_MAX, volume)
+            volume = max(VOLUME_MIN, min(VOLUME_MAX, volume))
         return volume
 
     def _log_parse_failure(self, operation: str, resp_text: str) -> None:
@@ -410,7 +416,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             operation: Name of the operation (e.g., "GetVolume", "SetVolume") for logging
             
         Returns:
-            Volume value (0-99) or None if parsing failed
+            Volume value (0-999999) or None if parsing failed
         """
         try:
             root = ET.fromstring(resp_text)
@@ -509,7 +515,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         return self._parse_volume_response(resp_text, "GetVolume")
 
     def _set_volume(self, volume: int) -> int | None:
-        """Set volume level (0-99).
+        """Set volume level (0-999999).
         
         Returns:
             The actual volume value returned by the TV, or None on failure
@@ -827,17 +833,17 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             _LOGGER.error("Volume must be between 0 and 1, got: %s", volume)
             return
 
-        volume_percent = round(volume * 99)
-        _LOGGER.info("Setting volume from HA value %.2f to TV value %d (0-99 range)", volume, volume_percent)
+        volume_tv = round(volume * VOLUME_MAX)
+        _LOGGER.info("Setting volume from HA value %.2f to TV value %d (0-%d range)", volume, volume_tv, VOLUME_MAX)
         # SetVolume returns the actual volume set in the VolumeResponse
-        actual_volume = await self._hass.async_add_executor_job(self._set_volume, volume_percent)
+        actual_volume = await self._hass.async_add_executor_job(self._set_volume, volume_tv)
         if actual_volume is not None:
             self._volume = actual_volume
-            _LOGGER.info("Volume confirmed as %d after set operation (HA value: %.2f)", actual_volume, actual_volume / 99)
+            _LOGGER.info("Volume confirmed as %d after set operation (HA value: %.2f)", actual_volume, actual_volume / VOLUME_MAX)
             # Notify Home Assistant that the state has changed
             self.async_write_ha_state()
         else:
-            _LOGGER.error("Failed to set volume to %d (0-99 range)", volume_percent)
+            _LOGGER.error("Failed to set volume to %d (0-%d range)", volume_tv, VOLUME_MAX)
 
     async def async_volume_up(self) -> None:
         """Increase volume by one step."""
