@@ -321,6 +321,44 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         """
         _LOGGER.debug("%s response length: %d bytes", operation, len(resp_text))
 
+    def _find_response_element(self, root: ET.Element, element_name: str) -> ET.Element | None:
+        """Find a response element in XML, checking root first then descendants.
+        
+        This handles both SOAP envelope wrapped responses and literal body responses
+        where the target element is the root element itself.
+        
+        For example, a SOAP-wrapped response looks like:
+          <soapenv:Envelope><soapenv:Body><VolumeResponse>...</VolumeResponse></soapenv:Body></soapenv:Envelope>
+        
+        But a literal body response has VolumeResponse as the root:
+          <VolumeResponse>...</VolumeResponse>
+        
+        Args:
+            root: The XML root element
+            element_name: Name of the element to find (e.g., "VolumeResponse", "MuteResponse")
+            
+        Returns:
+            The found element or None
+        """
+        ns = {"ltv": NAMESPACE}
+        
+        # Check if root element is the target element
+        if root.tag == f"{{{NAMESPACE}}}{element_name}":
+            return root
+        if root.tag == element_name:
+            return root
+        
+        # Search for element as descendant
+        element = root.find(f".//ltv:{element_name}", ns)
+        if element is None:
+            # Fallback: try with explicit namespace (for default namespace case)
+            element = root.find(f".//{{{NAMESPACE}}}{element_name}")
+        if element is None:
+            # Fallback: try without any namespace
+            element = root.find(f".//{element_name}")
+        
+        return element
+
     def _parse_volume_response(self, resp_text: str, operation: str) -> int | None:
         """Parse volume value from a VolumeResponse.
         
@@ -338,14 +376,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             root = ET.fromstring(resp_text)
             ns = {"ltv": NAMESPACE}
             
-            # First, find the VolumeResponse element to avoid picking up wrong Value elements
-            volume_response = root.find(".//ltv:VolumeResponse", ns)
-            if volume_response is None:
-                # Fallback: try with explicit namespace (for default namespace case)
-                volume_response = root.find(".//{%s}VolumeResponse" % NAMESPACE)
-            if volume_response is None:
-                # Fallback: try without any namespace
-                volume_response = root.find(".//VolumeResponse")
+            # Find VolumeResponse element (handles both root and descendant cases)
+            volume_response = self._find_response_element(root, "VolumeResponse")
             
             if volume_response is None:
                 _LOGGER.warning("Could not find VolumeResponse element in %s response", operation)
@@ -498,14 +530,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             root = ET.fromstring(resp_text)
             ns = {"ltv": NAMESPACE}
             
-            # First, find the MuteResponse element to avoid picking up wrong Value elements
-            mute_response = root.find(".//ltv:MuteResponse", ns)
-            if mute_response is None:
-                # Fallback: try with explicit namespace (for default namespace case)
-                mute_response = root.find(".//{%s}MuteResponse" % NAMESPACE)
-            if mute_response is None:
-                # Fallback: try without any namespace
-                mute_response = root.find(".//MuteResponse")
+            # Find MuteResponse element (handles both root and descendant cases)
+            mute_response = self._find_response_element(root, "MuteResponse")
             
             if mute_response is None:
                 _LOGGER.warning("Could not find MuteResponse element in GetMute response")
