@@ -334,6 +334,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             # Try to connect and send a simple GET request
             conn.request("GET", self._path)
             response = conn.getresponse()
+            # Read and discard the response body to properly close the connection
+            _ = response.read()
             conn.close()
             # Any response (even error) means TV is reachable
             _LOGGER.debug("TV reachability check: got response status %d", response.status)
