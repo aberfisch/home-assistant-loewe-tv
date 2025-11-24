@@ -361,8 +361,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         # Check for SOAP Fault first
         fault = root.find(".//soap:Fault", ns)
         if fault is None:
-            # Try with alternate SOAP namespaces
-            fault = root.find(f".//{{{SOAP_NS_1_1}}}Fault")
+            # Try with SOAP 1.2 namespace
+            fault = root.find(f".//{{{SOAP_NS_1_2}}}Fault")
         if fault is None:
             # Try without namespace prefix (some implementations might not use namespace)
             fault = root.find(".//Fault")
@@ -383,13 +383,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         # Try to find SOAP Body first and search within it
         soap_body = root.find(".//soap:Body", ns)
         if soap_body is None:
-            soap_body = root.find(f".//{{{SOAP_NS_1_1}}}Body")
-        if soap_body is None:
-            # Try with common SOAP namespace variations
-            for soap_ns in [SOAP_NS_1_2, SOAP_NS_1_1]:
-                soap_body = root.find(f".//{{{soap_ns}}}Body")
-                if soap_body is not None:
-                    break
+            # Try with SOAP 1.2 namespace
+            soap_body = root.find(f".//{{{SOAP_NS_1_2}}}Body")
         
         # If we found a SOAP Body, search within it first
         if soap_body is not None:
