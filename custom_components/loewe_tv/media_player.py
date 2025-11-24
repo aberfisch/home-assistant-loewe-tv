@@ -331,6 +331,23 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             volume = max(VOLUME_MIN, min(VOLUME_MAX, volume))
         return volume
 
+    def _find_soap_body(self, root: ET.Element) -> ET.Element | None:
+        """Find the SOAP Body element in an XML tree.
+        
+        Handles both SOAP 1.1 and SOAP 1.2 namespaces.
+        
+        Args:
+            root: The XML root element
+            
+        Returns:
+            The SOAP Body element or None if not found
+        """
+        ns = {"soap": SOAP_NS_1_1}
+        soap_body = root.find(".//soap:Body", ns)
+        if soap_body is None:
+            # Try with SOAP 1.2 namespace
+            soap_body = root.find(f".//{{{SOAP_NS_1_2}}}Body")
+        return soap_body
     @staticmethod
     def _get_local_name(tag: str) -> str:
         """Extract local name from an XML tag, stripping namespace if present.
@@ -361,6 +378,16 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 for child in children[:MAX_DEBUG_CHILDREN]:
                     _LOGGER.debug("%s response child element: %s", operation, child.tag)
             
+            # Also log SOAP Body contents if this is a SOAP envelope
+            soap_body = self._find_soap_body(root)
+            if soap_body is not None:
+                body_children = list(soap_body)
+                if body_children:
+                    _LOGGER.debug("%s SOAP Body has %d child elements", operation, len(body_children))
+                    for child in body_children[:MAX_DEBUG_CHILDREN]:
+                        _LOGGER.debug("%s SOAP Body child element: %s", operation, child.tag)
+                else:
+                    _LOGGER.debug("%s SOAP Body is empty", operation)
             # Log SOAP Body contents if present (more useful for debugging)
             ns = {"soap": SOAP_NS_1_1}
             soap_body = root.find(".//soap:Body", ns)
@@ -454,6 +481,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             return root
         
         # Try to find SOAP Body first and search within it
+        soap_body = self._find_soap_body(root)
         soap_body = root.find(".//soap:Body", ns)
         if soap_body is None:
             # Try with SOAP 1.2 namespace
@@ -462,13 +490,15 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             # Try with explicit SOAP 1.1 namespace (fallback for edge cases)
             soap_body = root.find(f".//{{{SOAP_NS_1_1}}}Body")
         
-        # If we found a SOAP Body, search within it first
+        # If we found a SOAP Body, search within it first (using descendant search
+        # to handle cases where the response element might be wrapped in another element)
         if soap_body is not None:
-            # Search within Body for our element
-            element = soap_body.find(f"ltv:{element_name}", ns)
+            # Search within Body for our element (as descendant to handle wrapped responses)
+            element = soap_body.find(f".//ltv:{element_name}", ns)
             if element is None:
-                element = soap_body.find(f"{{{NAMESPACE}}}{element_name}")
+                element = soap_body.find(f".//{{{NAMESPACE}}}{element_name}")
             if element is None:
+                element = soap_body.find(f".//{element_name}")
                 element = soap_body.find(element_name)
             if element is None:
                 # Fallback: search by local name (ignores namespace)
@@ -481,6 +511,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 return element
         
         # Fallback: Search for element as descendant anywhere in the tree
+        # This handles cases where SOAP Body wasn't found or the element is located outside the expected SOAP Body structure
         element = root.find(f".//ltv:{element_name}", ns)
         if element is None:
             # Fallback: try with explicit namespace (for default namespace case)
