@@ -419,6 +419,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         Returns:
             Volume value (0-99) or None if parsing failed
         """
+        root = None
         try:
             root = ET.fromstring(resp_text)
             ns = {"ltv": NAMESPACE}
@@ -451,10 +452,10 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 self._log_parse_failure(operation, resp_text, root)
         except ValueError as err:
             _LOGGER.error("Invalid volume value in %s response: %s", operation, err)
-            self._log_parse_failure(operation, resp_text, root if 'root' in locals() else None)
+            self._log_parse_failure(operation, resp_text, root)
         except Exception as err:
             _LOGGER.error("Error parsing %s response: %s", operation, err)
-            self._log_parse_failure(operation, resp_text, root if 'root' in locals() else None)
+            self._log_parse_failure(operation, resp_text, root)
         return None
 
     def _inject_rc_key(self, key_code: int, use_wol: bool = False) -> bool:
@@ -573,6 +574,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             _LOGGER.debug("No response from GetMute request")
             return None
         
+        root = None
         try:
             root = ET.fromstring(resp_text)
             ns = {"ltv": NAMESPACE}
@@ -603,7 +605,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 self._log_parse_failure("GetMute", resp_text, root)
         except Exception as err:
             _LOGGER.error("Error parsing mute response: %s", err)
-            self._log_parse_failure("GetMute", resp_text, root if 'root' in locals() else None)
+            self._log_parse_failure("GetMute", resp_text, root)
         return None
 
     def _set_mute(self, mute: bool) -> bool:
