@@ -347,6 +347,19 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 _LOGGER.debug("%s response has %d child elements", operation, len(children))
                 for child in children[:MAX_DEBUG_CHILDREN]:
                     _LOGGER.debug("%s response child element: %s", operation, child.tag)
+            
+            # Log SOAP Body contents if present (more useful for debugging)
+            ns = {"soap": SOAP_NS_1_1}
+            soap_body = root.find(".//soap:Body", ns)
+            if soap_body is None:
+                soap_body = root.find(f".//{{{SOAP_NS_1_2}}}Body")
+            if soap_body is None:
+                soap_body = root.find(f".//{{{SOAP_NS_1_1}}}Body")
+            if soap_body is not None:
+                body_children = list(soap_body)
+                _LOGGER.debug("%s SOAP Body has %d child elements", operation, len(body_children))
+                for child in body_children[:MAX_DEBUG_CHILDREN]:
+                    _LOGGER.debug("%s SOAP Body child element: %s", operation, child.tag)
 
     def _is_tv_reachable(self) -> bool:
         """Check if TV is reachable via a simple HTTP connection test.
@@ -432,6 +445,9 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         if soap_body is None:
             # Try with SOAP 1.2 namespace
             soap_body = root.find(f".//{{{SOAP_NS_1_2}}}Body")
+        if soap_body is None:
+            # Try with explicit SOAP 1.1 namespace (fallback for edge cases)
+            soap_body = root.find(f".//{{{SOAP_NS_1_1}}}Body")
         
         # If we found a SOAP Body, search within it first
         if soap_body is not None:
@@ -441,6 +457,14 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 element = soap_body.find(f"{{{NAMESPACE}}}{element_name}")
             if element is None:
                 element = soap_body.find(element_name)
+            if element is None:
+                # Fallback: search by local name (ignores namespace)
+                # This handles cases where the TV uses an unexpected namespace
+                for child in soap_body:
+                    local_name = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+                    if local_name == element_name:
+                        element = child
+                        break
             if element is not None:
                 return element
         
@@ -452,6 +476,13 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         if element is None:
             # Fallback: try without any namespace
             element = root.find(f".//{element_name}")
+        if element is None:
+            # Final fallback: iterate all descendants and search by local name
+            for elem in root.iter():
+                local_name = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
+                if local_name == element_name:
+                    element = elem
+                    break
         
         return element
 
