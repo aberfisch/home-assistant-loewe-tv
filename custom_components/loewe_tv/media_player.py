@@ -32,6 +32,10 @@ WOL_WAIT_TIME = 10  # Seconds to wait for TV to wake up after WOL
 RETRY_DELAY = 3  # Seconds to wait between retry attempts
 MAX_AUTH_RETRIES = 3  # Maximum authentication retry attempts
 
+# Connection timeout settings
+SOAP_TIMEOUT = 5  # Timeout for SOAP requests in seconds
+REACHABILITY_TIMEOUT = 3  # Timeout for reachability check in seconds
+
 # Loewe TV remote control keycodes (alphabet: l2700)
 RC_KEY_POWER = 12
 RC_KEY_MUTE = 13
@@ -178,7 +182,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         }
         
         try:
-            conn = http.client.HTTPConnection(self._host, self._port, timeout=5)
+            conn = http.client.HTTPConnection(self._host, self._port, timeout=SOAP_TIMEOUT)
             conn.request("POST", self._path, body=soap_body, headers=headers)
             response = conn.getresponse()
             resp_text = response.read().decode('utf-8', errors='ignore')
@@ -193,7 +197,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 time.sleep(WOL_WAIT_TIME)
                 # Retry once
                 try:
-                    conn = http.client.HTTPConnection(self._host, self._port, timeout=5)
+                    conn = http.client.HTTPConnection(self._host, self._port, timeout=SOAP_TIMEOUT)
                     conn.request("POST", self._path, body=soap_body, headers=headers)
                     response = conn.getresponse()
                     resp_text = response.read().decode('utf-8', errors='ignore')
@@ -329,14 +333,14 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         Returns:
             True if TV responds to HTTP connection, False otherwise
         """
+        conn = None
         try:
-            conn = http.client.HTTPConnection(self._host, self._port, timeout=3)
+            conn = http.client.HTTPConnection(self._host, self._port, timeout=REACHABILITY_TIMEOUT)
             # Try to connect and send a simple GET request
             conn.request("GET", self._path)
             response = conn.getresponse()
             # Read and discard the response body to properly close the connection
             _ = response.read()
-            conn.close()
             # Any response (even error) means TV is reachable
             _LOGGER.debug("TV reachability check: got response status %d", response.status)
             return True
@@ -346,6 +350,13 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         except Exception as err:
             _LOGGER.debug("Unexpected error during TV reachability check: %s", err)
             return False
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    # Ignore errors when closing connection
+                    pass
 
     def _find_response_element(self, root: ET.Element, element_name: str) -> ET.Element | None:
         """Find a response element in XML, checking root first then descendants.
