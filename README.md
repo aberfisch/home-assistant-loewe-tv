@@ -184,7 +184,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## API Documentation
 
 For detailed information about the Loewe TV SOAP API, refer to the official documentation:
-- [Loewe TV API Documentation (PDF)](https://github.com/meaumeau/Loewe_TV_API/blob/main/Documention/remote_api_1.0.47_Loewe.pdf)
+- [Loewe TV API Documentation (PDF)](https://github.com/meaumeau/Loewe_TV_API/blob/main/Documention/remote_api_1.0.47_Loewe%20_OCR.pdf)
 
 This documentation provides comprehensive details about available SOAP methods, parameters, and TV control capabilities.
 
