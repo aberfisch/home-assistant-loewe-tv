@@ -28,7 +28,8 @@ DEFAULT_PORT = 905
 NAMESPACE = "urn:loewe.de:RemoteTV:Tablet"
 
 # Volume range constants
-# Loewe TV uses a range of 0-999999 where 100000 = 10% and 999999 = 100%
+# Loewe TV uses a range of 0-999999 (approximately 10000 units per percentage point)
+# According to the TV specification: 100000 = 10%, 999999 = 100%
 VOLUME_MIN = 0
 VOLUME_MAX = 999999
 
