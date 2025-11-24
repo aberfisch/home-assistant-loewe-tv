@@ -795,6 +795,10 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         """Retrieve the latest data from the TV."""
         _LOGGER.debug("Updating Loewe TV state")
 
+        # Flags to track what we've already fetched to avoid redundant SOAP calls
+        mute_fetched = False
+        playback_fetched = False
+        
         # Try to get volume to check if TV is reachable/on
         volume = await self._hass.async_add_executor_job(self._get_volume)
         
@@ -818,10 +822,38 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                         self._state = MediaPlayerState.ON
                         self._volume = volume
                     else:
-                        # Authentication succeeded but still no volume - TV might be starting up
-                        _LOGGER.warning("Authentication succeeded but couldn't get volume, TV may be starting up")
-                        self._state = MediaPlayerState.OFF
-                        return
+                        # Authentication succeeded but GetVolume failed
+                        # Try alternate SOAP operations to verify TV is responding
+                        # Since TV is reachable and authenticated, it's most likely ON
+                        _LOGGER.debug("GetVolume failed after authentication, trying GetMute as fallback")
+                        mute = await self._hass.async_add_executor_job(self._get_mute)
+                        mute_fetched = True
+                        if mute is not None:
+                            # GetMute succeeded - TV is ON and authenticated
+                            _LOGGER.info("TV state verified as ON via GetMute after re-authentication")
+                            self._state = MediaPlayerState.ON
+                            self._is_volume_muted = mute
+                            # Volume will remain at last known value since GetVolume failed
+                        else:
+                            # Both GetVolume and GetMute failed - try GetCurrentPlayback
+                            _LOGGER.debug("GetMute also failed, trying GetCurrentPlayback as final fallback")
+                            playback = await self._hass.async_add_executor_job(self._get_current_playback)
+                            playback_fetched = True
+                            if playback is not None:
+                                # GetCurrentPlayback succeeded - TV is ON
+                                _LOGGER.info("TV state verified as ON via GetCurrentPlayback after re-authentication")
+                                self._state = MediaPlayerState.ON
+                                # Update media title from playback info
+                                locator = playback.get("locator")
+                                if locator:
+                                    self._media_title = self._format_channel_title(locator)
+                                    _LOGGER.debug("Current playback locator: %s, title: %s", locator, self._media_title)
+                            else:
+                                # All SOAP operations failed despite successful authentication
+                                # This might indicate TV is starting up or in an unusual state
+                                # Since TV is reachable and authenticated, assume ON but log warning
+                                _LOGGER.warning("Authentication succeeded and TV is reachable, but all SOAP operations failed. Setting state to ON.")
+                                self._state = MediaPlayerState.ON
                 else:
                     # Re-authentication failed but TV is reachable - might need pairing
                     _LOGGER.warning("TV is reachable but re-authentication failed, may need pairing")
@@ -839,20 +871,22 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             self._state = MediaPlayerState.ON
             self._volume = volume
 
-        # Get mute status
-        mute = await self._hass.async_add_executor_job(self._get_mute)
-        if mute is not None:
-            self._is_volume_muted = mute
+        # Get mute status if not already fetched
+        if not mute_fetched:
+            mute = await self._hass.async_add_executor_job(self._get_mute)
+            if mute is not None:
+                self._is_volume_muted = mute
 
-        # Get current playback information (channel/media)
-        playback = await self._hass.async_add_executor_job(self._get_current_playback)
-        locator = playback.get("locator") if playback is not None else None
-        if locator:
-            # Format the locator into a user-friendly channel title
-            self._media_title = self._format_channel_title(locator)
-            _LOGGER.debug("Current playback locator: %s, title: %s", locator, self._media_title)
-        else:
-            self._media_title = None
+        # Get current playback information (channel/media) if not already fetched
+        if not playback_fetched:
+            playback = await self._hass.async_add_executor_job(self._get_current_playback)
+            locator = playback.get("locator") if playback is not None else None
+            if locator:
+                # Format the locator into a user-friendly channel title
+                self._media_title = self._format_channel_title(locator)
+                _LOGGER.debug("Current playback locator: %s, title: %s", locator, self._media_title)
+            else:
+                self._media_title = None
 
     async def async_turn_on(self) -> None:
         """Turn the TV on using Wake-on-LAN and power RC key."""
