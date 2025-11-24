@@ -330,6 +330,18 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             volume = max(VOLUME_MIN, min(VOLUME_MAX, volume))
         return volume
 
+    @staticmethod
+    def _get_local_name(tag: str) -> str:
+        """Extract local name from an XML tag, stripping namespace if present.
+        
+        Args:
+            tag: XML element tag, possibly with namespace (e.g., '{namespace}localname')
+            
+        Returns:
+            Local name without namespace (e.g., 'localname')
+        """
+        return tag.split('}')[-1] if '}' in tag else tag
+
     def _log_parse_failure(self, operation: str, resp_text: str, root: ET.Element | None = None) -> None:
         """Log parsing failure with response details.
         
@@ -461,8 +473,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 # Fallback: search by local name (ignores namespace)
                 # This handles cases where the TV uses an unexpected namespace
                 for child in soap_body:
-                    local_name = child.tag.split('}')[-1] if '}' in child.tag else child.tag
-                    if local_name == element_name:
+                    if self._get_local_name(child.tag) == element_name:
                         element = child
                         break
             if element is not None:
@@ -478,9 +489,9 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             element = root.find(f".//{element_name}")
         if element is None:
             # Final fallback: iterate all descendants and search by local name
+            # SOAP responses from TVs are typically small, so this is acceptable
             for elem in root.iter():
-                local_name = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
-                if local_name == element_name:
+                if self._get_local_name(elem.tag) == element_name:
                     element = elem
                     break
         
