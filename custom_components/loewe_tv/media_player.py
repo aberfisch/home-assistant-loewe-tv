@@ -32,6 +32,9 @@ WOL_WAIT_TIME = 10  # Seconds to wait for TV to wake up after WOL
 RETRY_DELAY = 3  # Seconds to wait between retry attempts
 MAX_AUTH_RETRIES = 3  # Maximum authentication retry attempts
 
+# Debug logging settings
+MAX_DEBUG_CHILDREN = 3  # Maximum number of child elements to log for debugging
+
 # Loewe TV remote control keycodes (alphabet: l2700)
 RC_KEY_POWER = 12
 RC_KEY_MUTE = 13
@@ -327,7 +330,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             children = list(root)
             if children:
                 _LOGGER.debug("%s response has %d child elements", operation, len(children))
-                for child in children[:3]:  # Log first 3 children only
+                for child in children[:MAX_DEBUG_CHILDREN]:
                     _LOGGER.debug("%s response child element: %s", operation, child.tag)
 
     def _find_response_element(self, root: ET.Element, element_name: str) -> ET.Element | None:
