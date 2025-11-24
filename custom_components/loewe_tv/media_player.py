@@ -30,6 +30,11 @@ NAMESPACE = "urn:loewe.de:RemoteTV:Tablet"
 # SOAP namespace variations
 SOAP_NS_1_1 = "http://schemas.xmlsoap.org/soap/envelope/"
 SOAP_NS_1_2 = "http://www.w3.org/2003/05/soap-envelope"
+# Volume range constants
+# Loewe TV uses a range of 0-999999 (approximately 10000 units per percentage point)
+# According to the TV specification: 100000 = 10%, 999999 = 100%
+VOLUME_MIN = 0
+VOLUME_MAX = 999999
 
 # WOL and retry settings
 WOL_WAIT_TIME = 10  # Seconds to wait for TV to wake up after WOL
@@ -38,6 +43,9 @@ MAX_AUTH_RETRIES = 3  # Maximum authentication retry attempts
 
 # Debug logging settings
 MAX_DEBUG_CHILDREN = 3  # Maximum number of child elements to log for debugging
+# Connection timeout settings
+SOAP_TIMEOUT = 5  # Timeout for SOAP requests in seconds
+REACHABILITY_TIMEOUT = 3  # Timeout for reachability check in seconds
 
 # Loewe TV remote control keycodes (alphabet: l2700)
 RC_KEY_POWER = 12
@@ -139,7 +147,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     @property
     def volume_level(self) -> float:
         """Volume level of the media player (0..1)."""
-        return self._volume / 99 
+        return self._volume / VOLUME_MAX 
 
     @property
     def is_volume_muted(self) -> bool:
@@ -185,7 +193,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         }
         
         try:
-            conn = http.client.HTTPConnection(self._host, self._port, timeout=5)
+            conn = http.client.HTTPConnection(self._host, self._port, timeout=SOAP_TIMEOUT)
             conn.request("POST", self._path, body=soap_body, headers=headers)
             response = conn.getresponse()
             resp_text = response.read().decode('utf-8', errors='ignore')
@@ -200,7 +208,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 time.sleep(WOL_WAIT_TIME)
                 # Retry once
                 try:
-                    conn = http.client.HTTPConnection(self._host, self._port, timeout=5)
+                    conn = http.client.HTTPConnection(self._host, self._port, timeout=SOAP_TIMEOUT)
                     conn.request("POST", self._path, body=soap_body, headers=headers)
                     response = conn.getresponse()
                     resp_text = response.read().decode('utf-8', errors='ignore')
@@ -306,17 +314,17 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         return self._request_access(use_wol=use_wol)
 
     def _validate_volume(self, volume: int) -> int:
-        """Validate and clamp volume to valid range (0-99).
+        """Validate and clamp volume to valid range (0-999999).
         
         Args:
             volume: Volume value to validate
             
         Returns:
-            Clamped volume value in range 0-99
+            Clamped volume value in range 0-999999
         """
-        if not 0 <= volume <= 99:
-            _LOGGER.warning("Volume value out of valid range (0-99): %d, clamping", volume)
-            volume = max(0, min(99, volume))
+        if not VOLUME_MIN <= volume <= VOLUME_MAX:
+            _LOGGER.warning("Volume value out of valid range (%d-%d): %d, clamping", VOLUME_MIN, VOLUME_MAX, volume)
+            volume = max(VOLUME_MIN, min(VOLUME_MAX, volume))
         return volume
 
     def _log_parse_failure(self, operation: str, resp_text: str, root: ET.Element | None = None) -> None:
@@ -336,6 +344,42 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 _LOGGER.debug("%s response has %d child elements", operation, len(children))
                 for child in children[:MAX_DEBUG_CHILDREN]:
                     _LOGGER.debug("%s response child element: %s", operation, child.tag)
+
+    def _is_tv_reachable(self) -> bool:
+        """Check if TV is reachable via a simple HTTP connection test.
+        
+        This performs a basic connectivity check without requiring authentication.
+        We use a GET request (even though SOAP expects POST) because we only care
+        if the TV's HTTP server responds at all - any response (including errors
+        like 405 Method Not Allowed) indicates the TV is reachable.
+        
+        Returns:
+            True if TV responds to HTTP connection, False otherwise
+        """
+        conn = None
+        try:
+            conn = http.client.HTTPConnection(self._host, self._port, timeout=REACHABILITY_TIMEOUT)
+            # Try to connect and send a simple GET request
+            conn.request("GET", self._path)
+            response = conn.getresponse()
+            # Read and discard the response body to properly close the connection
+            _ = response.read()
+            # Any response (even error) means TV is reachable
+            _LOGGER.debug("TV reachability check: got response status %d", response.status)
+            return True
+        except (socket.timeout, socket.error, http.client.HTTPException) as err:
+            _LOGGER.debug("TV reachability check failed: %s", err)
+            return False
+        except Exception as err:
+            _LOGGER.debug("Unexpected error during TV reachability check: %s", err)
+            return False
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    # Ignore errors when closing connection
+                    pass
 
     def _find_response_element(self, root: ET.Element, element_name: str) -> ET.Element | None:
         """Find a response element in XML, checking root first then descendants.
@@ -419,7 +463,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             operation: Name of the operation (e.g., "GetVolume", "SetVolume") for logging
             
         Returns:
-            Volume value (0-99) or None if parsing failed
+            Volume value (0-999999) or None if parsing failed
         """
         root = None
         try:
@@ -519,7 +563,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         return self._parse_volume_response(resp_text, "GetVolume")
 
     def _set_volume(self, volume: int) -> int | None:
-        """Set volume level (0-99).
+        """Set volume level (0-999999).
         
         Returns:
             The actual volume value returned by the TV, or None on failure
@@ -755,15 +799,45 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         volume = await self._hass.async_add_executor_job(self._get_volume)
         
         if volume is None:
-            # TV is not reachable or authentication failed
-            self._state = MediaPlayerState.OFF
-            # Reset client_id to force re-authentication on next successful connection
-            self._client_id = None
-            return
-
-        # TV is reachable, assume it's ON
-        self._state = MediaPlayerState.ON
-        self._volume = volume
+            # Volume request failed - could be authentication issue or TV is off
+            # Check if TV is actually reachable before declaring it OFF
+            is_reachable = await self._hass.async_add_executor_job(self._is_tv_reachable)
+            
+            if is_reachable:
+                # TV is reachable but we couldn't get volume - likely authentication issue
+                _LOGGER.debug("TV is reachable but volume query failed, attempting re-authentication")
+                # Reset client_id to force re-authentication
+                self._client_id = None
+                # Try to authenticate and get volume again
+                auth_success = await self._hass.async_add_executor_job(self._ensure_authenticated)
+                if auth_success:
+                    volume = await self._hass.async_add_executor_job(self._get_volume)
+                    if volume is not None:
+                        # Successfully re-authenticated and got volume
+                        _LOGGER.info("Re-authentication successful, TV is ON")
+                        self._state = MediaPlayerState.ON
+                        self._volume = volume
+                    else:
+                        # Authentication succeeded but still no volume - TV might be starting up
+                        _LOGGER.warning("Authentication succeeded but couldn't get volume, TV may be starting up")
+                        self._state = MediaPlayerState.OFF
+                        return
+                else:
+                    # Re-authentication failed but TV is reachable - might need pairing
+                    _LOGGER.warning("TV is reachable but re-authentication failed, may need pairing")
+                    self._state = MediaPlayerState.OFF
+                    return
+            else:
+                # TV is not reachable at all
+                _LOGGER.debug("TV is not reachable, setting state to OFF")
+                self._state = MediaPlayerState.OFF
+                # Reset client_id to force re-authentication on next successful connection
+                self._client_id = None
+                return
+        else:
+            # Successfully got volume, TV is ON
+            self._state = MediaPlayerState.ON
+            self._volume = volume
 
         # Get mute status
         mute = await self._hass.async_add_executor_job(self._get_mute)
@@ -808,17 +882,17 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             _LOGGER.error("Volume must be between 0 and 1, got: %s", volume)
             return
 
-        volume_percent = round(volume * 99)
-        _LOGGER.info("Setting volume from HA value %.2f to TV value %d (0-99 range)", volume, volume_percent)
+        volume_tv = round(volume * VOLUME_MAX)
+        _LOGGER.info("Setting volume from HA value %.2f to TV value %d (0-%d range)", volume, volume_tv, VOLUME_MAX)
         # SetVolume returns the actual volume set in the VolumeResponse
-        actual_volume = await self._hass.async_add_executor_job(self._set_volume, volume_percent)
+        actual_volume = await self._hass.async_add_executor_job(self._set_volume, volume_tv)
         if actual_volume is not None:
             self._volume = actual_volume
-            _LOGGER.info("Volume confirmed as %d after set operation (HA value: %.2f)", actual_volume, actual_volume / 99)
+            _LOGGER.info("Volume confirmed as %d after set operation (HA value: %.2f)", actual_volume, actual_volume / VOLUME_MAX)
             # Notify Home Assistant that the state has changed
             self.async_write_ha_state()
         else:
-            _LOGGER.error("Failed to set volume to %d (0-99 range)", volume_percent)
+            _LOGGER.error("Failed to set volume to %d (0-%d range)", volume_tv, VOLUME_MAX)
 
     async def async_volume_up(self) -> None:
         """Increase volume by one step."""
