@@ -31,11 +31,12 @@ NAMESPACE = "urn:loewe.de:RemoteTV:Tablet"
 SOAP_NS_1_1 = "http://schemas.xmlsoap.org/soap/envelope/"
 SOAP_NS_1_2 = "http://www.w3.org/2003/05/soap-envelope"
 # Volume range constants
-# Loewe TV returns volume as a string where values > 5 digits have the last 4 digits removed
-# to get the actual volume (0-99 range). When setting volume, we multiply by VOLUME_MULTIPLIER.
+# Loewe TV returns volume as a string. When the string has 5+ digits (volume * 10000 format),
+# we remove the last 4 digits to get the actual volume (0-99 range).
+# When setting volume, we multiply by VOLUME_MULTIPLIER.
 VOLUME_MIN = 0
 VOLUME_MAX = 99
-VOLUME_MAX_DIGITS = 5  # Max digits before truncation is needed
+VOLUME_MIN_DIGITS_FOR_TRUNCATION = 5  # Min digits for truncation to apply
 VOLUME_SUFFIX_DIGITS = 4  # Number of trailing digits to remove when truncating
 VOLUME_MULTIPLIER = 10000  # Multiplier to convert from 0-99 to TV's 0-999999 range
 
@@ -347,6 +348,17 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             # Try with SOAP 1.2 namespace
             soap_body = root.find(f".//{{{SOAP_NS_1_2}}}Body")
         return soap_body
+    @staticmethod
+    def _get_local_name(tag: str) -> str:
+        """Extract local name from an XML tag, stripping namespace if present.
+        
+        Args:
+            tag: XML element tag, possibly with namespace (e.g., '{namespace}localname')
+            
+        Returns:
+            Local name without namespace (e.g., 'localname')
+        """
+        return tag.split('}')[-1] if '}' in tag else tag
 
     def _log_parse_failure(self, operation: str, resp_text: str, root: ET.Element | None = None) -> None:
         """Log parsing failure with response details.
@@ -376,6 +388,18 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                         _LOGGER.debug("%s SOAP Body child element: %s", operation, child.tag)
                 else:
                     _LOGGER.debug("%s SOAP Body is empty", operation)
+            # Log SOAP Body contents if present (more useful for debugging)
+            ns = {"soap": SOAP_NS_1_1}
+            soap_body = root.find(".//soap:Body", ns)
+            if soap_body is None:
+                soap_body = root.find(f".//{{{SOAP_NS_1_2}}}Body")
+            if soap_body is None:
+                soap_body = root.find(f".//{{{SOAP_NS_1_1}}}Body")
+            if soap_body is not None:
+                body_children = list(soap_body)
+                _LOGGER.debug("%s SOAP Body has %d child elements", operation, len(body_children))
+                for child in body_children[:MAX_DEBUG_CHILDREN]:
+                    _LOGGER.debug("%s SOAP Body child element: %s", operation, child.tag)
 
     def _is_tv_reachable(self) -> bool:
         """Check if TV is reachable via a simple HTTP connection test.
@@ -458,6 +482,13 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         
         # Try to find SOAP Body first and search within it
         soap_body = self._find_soap_body(root)
+        soap_body = root.find(".//soap:Body", ns)
+        if soap_body is None:
+            # Try with SOAP 1.2 namespace
+            soap_body = root.find(f".//{{{SOAP_NS_1_2}}}Body")
+        if soap_body is None:
+            # Try with explicit SOAP 1.1 namespace (fallback for edge cases)
+            soap_body = root.find(f".//{{{SOAP_NS_1_1}}}Body")
         
         # If we found a SOAP Body, search within it first (using descendant search
         # to handle cases where the response element might be wrapped in another element)
@@ -468,6 +499,14 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 element = soap_body.find(f".//{{{NAMESPACE}}}{element_name}")
             if element is None:
                 element = soap_body.find(f".//{element_name}")
+                element = soap_body.find(element_name)
+            if element is None:
+                # Fallback: search by local name (ignores namespace)
+                # This handles cases where the TV uses an unexpected namespace
+                for child in soap_body:
+                    if self._get_local_name(child.tag) == element_name:
+                        element = child
+                        break
             if element is not None:
                 return element
         
@@ -480,6 +519,13 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         if element is None:
             # Fallback: try without any namespace
             element = root.find(f".//{element_name}")
+        if element is None:
+            # Final fallback: iterate all descendants and search by local name
+            # SOAP responses from TVs are typically small, so this is acceptable
+            for elem in root.iter():
+                if self._get_local_name(elem.tag) == element_name:
+                    element = elem
+                    break
         
         return element
 
@@ -528,8 +574,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                     _LOGGER.warning("Invalid volume string '%s' in %s response", volume_str, operation)
                     self._log_parse_failure(operation, resp_text, root)
                     return None
-                # If volume string has more than VOLUME_MAX_DIGITS, remove the last VOLUME_SUFFIX_DIGITS
-                if len(volume_str) > VOLUME_MAX_DIGITS:
+                # If volume string has 5+ digits (volume * 10000 format), remove the last 4 digits
+                if len(volume_str) >= VOLUME_MIN_DIGITS_FOR_TRUNCATION:
                     volume_str = volume_str[:-VOLUME_SUFFIX_DIGITS]
                 volume = int(volume_str)
                 # Validate and clamp volume to valid range (0-99)
