@@ -347,6 +347,9 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         if soap_body is None:
             # Try with SOAP 1.2 namespace
             soap_body = root.find(f".//{{{SOAP_NS_1_2}}}Body")
+        if soap_body is None:
+            # Try with explicit SOAP 1.1 namespace (fallback for edge cases)
+            soap_body = root.find(f".//{{{SOAP_NS_1_1}}}Body")
         return soap_body
     @staticmethod
     def _get_local_name(tag: str) -> str:
@@ -482,13 +485,6 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         
         # Try to find SOAP Body first and search within it
         soap_body = self._find_soap_body(root)
-        soap_body = root.find(".//soap:Body", ns)
-        if soap_body is None:
-            # Try with SOAP 1.2 namespace
-            soap_body = root.find(f".//{{{SOAP_NS_1_2}}}Body")
-        if soap_body is None:
-            # Try with explicit SOAP 1.1 namespace (fallback for edge cases)
-            soap_body = root.find(f".//{{{SOAP_NS_1_1}}}Body")
         
         # If we found a SOAP Body, search within it first (using descendant search
         # to handle cases where the response element might be wrapped in another element)
@@ -499,7 +495,6 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 element = soap_body.find(f".//{{{NAMESPACE}}}{element_name}")
             if element is None:
                 element = soap_body.find(f".//{element_name}")
-                element = soap_body.find(element_name)
             if element is None:
                 # Fallback: search by local name (ignores namespace)
                 # This handles cases where the TV uses an unexpected namespace
