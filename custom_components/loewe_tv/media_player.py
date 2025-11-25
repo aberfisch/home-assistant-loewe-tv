@@ -549,7 +549,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             volume_response = self._find_response_element(root, "VolumeResponse")
             
             if volume_response is None:
-                _LOGGER.warning("Could not find VolumeResponse element in %s response (root tag: %s)", operation, root.tag)
+                _LOGGER.debug("Could not find VolumeResponse element in %s response (root tag: %s)", operation, root.tag)
                 self._log_parse_failure(operation, resp_text, root)
                 return None
             
@@ -566,7 +566,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 volume_str = value.text.strip()
                 # Validate that the string contains only digits
                 if not volume_str or not volume_str.isdigit():
-                    _LOGGER.warning("Invalid volume string '%s' in %s response", volume_str, operation)
+                    _LOGGER.debug("Invalid volume string '%s' in %s response", volume_str, operation)
                     self._log_parse_failure(operation, resp_text, root)
                     return None
                 # If volume string has 5+ digits (volume * 10000 format), remove the last 4 digits
@@ -578,7 +578,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 _LOGGER.debug("%s response: parsed volume %d from raw value '%s'", operation, volume, value.text)
                 return volume
             else:
-                _LOGGER.warning("Could not find Value element in VolumeResponse from %s", operation)
+                _LOGGER.debug("Could not find Value element in VolumeResponse from %s", operation)
                 self._log_parse_failure(operation, resp_text, root)
         except ValueError as err:
             _LOGGER.error("Invalid volume value in %s response: %s", operation, err)
