@@ -31,14 +31,12 @@ NAMESPACE = "urn:loewe.de:RemoteTV:Tablet"
 SOAP_NS_1_1 = "http://schemas.xmlsoap.org/soap/envelope/"
 SOAP_NS_1_2 = "http://www.w3.org/2003/05/soap-envelope"
 # Volume range constants
-# Loewe TV returns volume as a string. When the string has 5+ digits (volume * 10000 format),
-# we remove the last 4 digits to get the actual volume (0-99 range).
+# Loewe TV returns volume as an integer string in range 0-999999 (raw value = volume * 10000).
+# We divide by VOLUME_MULTIPLIER to convert to the actual volume (0-99 range).
 # When setting volume, we multiply by VOLUME_MULTIPLIER.
 VOLUME_MIN = 0
 VOLUME_MAX = 99
-VOLUME_MIN_DIGITS_FOR_TRUNCATION = 5  # Min digits for truncation to apply
-VOLUME_SUFFIX_DIGITS = 4  # Number of trailing digits to remove when truncating
-VOLUME_MULTIPLIER = 10000  # Multiplier to convert from 0-99 to TV's 0-999999 range
+VOLUME_MULTIPLIER = 10000  # Multiplier/divisor to convert between 0-99 and TV's 0-999999 range
 
 # WOL and retry settings
 WOL_WAIT_TIME = 10  # Seconds to wait for TV to wake up after WOL
@@ -530,8 +528,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         This uses a triple-fallback XML parsing approach to handle different
         namespace configurations that may be returned by different TV models.
         
-        The TV returns volume as a string. If the string has more than 5 digits,
-        the last 4 digits are removed to get the actual volume (0-99 range).
+        The TV returns volume as an integer string in range 0-999999.
+        We divide by VOLUME_MULTIPLIER (10000) to convert to the actual volume (0-99 range).
         
         Args:
             resp_text: The XML response text
@@ -569,10 +567,9 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                     _LOGGER.debug("Invalid volume string '%s' in %s response", volume_str, operation)
                     self._log_parse_failure(operation, resp_text, root)
                     return None
-                # If volume string has 5+ digits (volume * 10000 format), remove the last 4 digits
-                if len(volume_str) >= VOLUME_MIN_DIGITS_FOR_TRUNCATION:
-                    volume_str = volume_str[:-VOLUME_SUFFIX_DIGITS]
-                volume = int(volume_str)
+                # Convert from TV's 0-999999 range to 0-99 range by dividing by VOLUME_MULTIPLIER
+                raw_volume = int(volume_str)
+                volume = raw_volume // VOLUME_MULTIPLIER
                 # Validate and clamp volume to valid range (0-99)
                 volume = self._validate_volume(volume)
                 _LOGGER.debug("%s response: parsed volume %d from raw value '%s'", operation, volume, value.text)
