@@ -451,14 +451,14 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         where the target element is the root element itself.
         
         For example, a SOAP-wrapped response looks like:
-          <soapenv:Envelope><soapenv:Body><VolumeResponse>...</VolumeResponse></soapenv:Body></soapenv:Envelope>
+          <soapenv:Envelope><soapenv:Body><GetVolumeResponse>...</GetVolumeResponse></soapenv:Body></soapenv:Envelope>
         
-        But a literal body response has VolumeResponse as the root:
-          <VolumeResponse>...</VolumeResponse>
+        But a literal body response has GetVolumeResponse as the root:
+          <GetVolumeResponse>...</GetVolumeResponse>
         
         Args:
             root: The XML root element
-            element_name: Name of the element to find (e.g., "VolumeResponse", "MuteResponse")
+            element_name: Name of the element to find (e.g., "GetVolumeResponse", "SetVolumeResponse", "GetMuteResponse")
             
         Returns:
             The found element or None
@@ -549,16 +549,18 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             root = ET.fromstring(resp_text)
             ns = {"ltv": NAMESPACE}
             
-            # Find VolumeResponse element (handles both root and descendant cases)
-            volume_response = self._find_response_element(root, "VolumeResponse")
+            # Find the response element - TV uses operation-specific element names
+            # e.g., GetVolume returns GetVolumeResponse, SetVolume returns SetVolumeResponse
+            response_element_name = f"{operation}Response"
+            volume_response = self._find_response_element(root, response_element_name)
             
             if volume_response is None:
-                _LOGGER.warning("Could not find VolumeResponse element in %s response (root tag: %s)", operation, root.tag)
+                _LOGGER.warning("Could not find %s element in %s response (root tag: %s)", response_element_name, operation, root.tag)
                 _LOGGER.warning("%s raw response (first 500 chars): %s", operation, resp_text[:500] if len(resp_text) > 500 else resp_text)
                 self._log_parse_failure(operation, resp_text, root)
                 return None
             
-            # Now find the Value element within VolumeResponse
+            # Now find the Value element within the response element
             value = volume_response.find("ltv:Value", ns)
             if value is None:
                 # Fallback: try with explicit namespace
@@ -589,10 +591,10 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 _LOGGER.debug("%s response: parsed volume %d from raw value '%s'", operation, volume, value.text)
                 return volume
             else:
-                _LOGGER.warning("Could not find Value element in VolumeResponse from %s", operation)
-                # Log VolumeResponse children to help diagnose
+                _LOGGER.warning("Could not find Value element in %s from %s", response_element_name, operation)
+                # Log response element children to help diagnose
                 vr_children = list(volume_response)
-                _LOGGER.warning("%s VolumeResponse has %d children: %s", operation, len(vr_children), 
+                _LOGGER.warning("%s %s has %d children: %s", operation, response_element_name, len(vr_children), 
                                [self._get_local_name(c.tag) for c in vr_children])
                 self._log_parse_failure(operation, resp_text, root)
         except ValueError as err:
@@ -731,15 +733,15 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             root = ET.fromstring(resp_text)
             ns = {"ltv": NAMESPACE}
             
-            # Find MuteResponse element (handles both root and descendant cases)
-            mute_response = self._find_response_element(root, "MuteResponse")
+            # Find GetMuteResponse element - TV uses operation-specific element names
+            mute_response = self._find_response_element(root, "GetMuteResponse")
             
             if mute_response is None:
-                _LOGGER.warning("Could not find MuteResponse element in GetMute response (root tag: %s)", root.tag)
+                _LOGGER.warning("Could not find GetMuteResponse element in GetMute response (root tag: %s)", root.tag)
                 self._log_parse_failure("GetMute", resp_text, root)
                 return None
             
-            # Now find the Value element within MuteResponse
+            # Now find the Value element within GetMuteResponse
             value = mute_response.find("ltv:Value", ns)
             if value is None:
                 # Fallback: try with explicit namespace
@@ -760,7 +762,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 _LOGGER.debug("Parsed mute from response: %s", mute_value)
                 return mute_value
             else:
-                _LOGGER.warning("Could not find Value element in MuteResponse from GetMute")
+                _LOGGER.warning("Could not find Value element in GetMuteResponse from GetMute")
                 self._log_parse_failure("GetMute", resp_text, root)
         except Exception as err:
             _LOGGER.error("Error parsing mute response: %s", err)
