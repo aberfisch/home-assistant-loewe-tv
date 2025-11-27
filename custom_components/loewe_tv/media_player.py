@@ -500,9 +500,9 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             if element is None:
                 element = soap_body.find(f".//{element_name}")
             if element is None:
-                # Fallback: search by local name (ignores namespace)
+                # Fallback: search all descendants by local name (ignores namespace)
                 # This handles cases where the TV uses an unexpected namespace
-                for child in soap_body:
+                for child in soap_body.iter():
                     if self._get_local_name(child.tag) == element_name:
                         element = child
                         break
@@ -747,6 +747,13 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             if value is None:
                 # Fallback: try without any namespace
                 value = mute_response.find("Value")
+            if value is None:
+                # Final fallback: search by local name (ignores namespace)
+                # This handles cases where the TV uses an unexpected namespace prefix
+                for child in mute_response:
+                    if self._get_local_name(child.tag) == "Value":
+                        value = child
+                        break
             
             if value is not None and value.text:
                 mute_value = value.text.lower() == "true" or value.text == "1"
