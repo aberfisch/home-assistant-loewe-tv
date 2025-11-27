@@ -31,12 +31,18 @@ NAMESPACE = "urn:loewe.de:RemoteTV:Tablet"
 SOAP_NS_1_1 = "http://schemas.xmlsoap.org/soap/envelope/"
 SOAP_NS_1_2 = "http://www.w3.org/2003/05/soap-envelope"
 # Volume range constants
-# Loewe TV returns volume as an integer string in range 0-999999 (raw value = volume * 10000).
-# We divide by VOLUME_MULTIPLIER to convert to the actual volume (0-99 range).
-# When setting volume, we multiply by VOLUME_MULTIPLIER.
+# Loewe TV API uses raw volume values in range 0-999999.
+# The formula is: raw_value = volume_percentage * 10000
+# Examples from API documentation:
+#   - 0 = 0% (muted)
+#   - 100000 = 10% (10 * 10000)
+#   - 500000 = 50% (50 * 10000)
+#   - 999999 ≈ 100% (max value)
+# We divide by VOLUME_MULTIPLIER (10000) to convert raw value to percentage (0-100 range).
+# When setting volume, we multiply percentage by VOLUME_MULTIPLIER to get raw value.
 VOLUME_MIN = 0
-VOLUME_MAX = 99
-VOLUME_MULTIPLIER = 10000  # Multiplier/divisor to convert between 0-99 and TV's 0-999999 range
+VOLUME_MAX = 100  # Maximum volume percentage (100%)
+VOLUME_MULTIPLIER = 10000  # Multiplier/divisor to convert between 0-100% and TV's 0-999999 range
 
 # WOL and retry settings
 WOL_WAIT_TIME = 10  # Seconds to wait for TV to wake up after WOL
@@ -316,13 +322,13 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         return self._request_access(use_wol=use_wol)
 
     def _validate_volume(self, volume: int) -> int:
-        """Validate and clamp volume to valid range (0-99).
+        """Validate and clamp volume to valid range (0-100).
         
         Args:
             volume: Volume value to validate
             
         Returns:
-            Clamped volume value in range 0-99
+            Clamped volume value in range 0-100
         """
         if not VOLUME_MIN <= volume <= VOLUME_MAX:
             _LOGGER.warning("Volume value out of valid range (%d-%d): %d, clamping", VOLUME_MIN, VOLUME_MAX, volume)
@@ -529,14 +535,14 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         namespace configurations that may be returned by different TV models.
         
         The TV returns volume as an integer string in range 0-999999.
-        We divide by VOLUME_MULTIPLIER (10000) to convert to the actual volume (0-99 range).
+        We divide by VOLUME_MULTIPLIER (10000) to convert to percentage (0-100 range).
         
         Args:
             resp_text: The XML response text
             operation: Name of the operation (e.g., "GetVolume", "SetVolume") for logging
             
         Returns:
-            Volume value (0-99) or None if parsing failed
+            Volume value (0-100) or None if parsing failed
         """
         root = None
         try:
@@ -567,10 +573,10 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                     _LOGGER.debug("Invalid volume string '%s' in %s response", volume_str, operation)
                     self._log_parse_failure(operation, resp_text, root)
                     return None
-                # Convert from TV's 0-999999 range to 0-99 range by dividing by VOLUME_MULTIPLIER
+                # Convert from TV's 0-999999 range to 0-100 percentage by dividing by VOLUME_MULTIPLIER
                 raw_volume = int(volume_str)
                 volume = raw_volume // VOLUME_MULTIPLIER
-                # Validate and clamp volume to valid range (0-99)
+                # Validate and clamp volume to valid range (0-100)
                 volume = self._validate_volume(volume)
                 _LOGGER.debug("%s response: parsed volume %d from raw value '%s'", operation, volume, value.text)
                 return volume
@@ -644,21 +650,22 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         return self._parse_volume_response(resp_text, "GetVolume")
 
     def _set_volume(self, volume: int) -> int | None:
-        """Set volume level (0-99).
+        """Set volume level (0-100).
         
         The TV expects volume values in 0-999999 range, so we multiply by 10000
-        to convert from our 0-99 range.
+        to convert from our 0-100 percentage range.
         
         Returns:
-            The actual volume value returned by the TV (0-99), or None on failure
+            The actual volume value returned by the TV (0-100), or None on failure
         """
         if not self._ensure_authenticated():
             return None
         
-        # Validate and clamp volume to valid range (0-99)
+        # Validate and clamp volume to valid range (0-100)
         volume = self._validate_volume(volume)
         
-        # Convert from 0-99 range to TV's expected 0-999999 range
+        # Convert from 0-100% range to TV's raw value range (0-1000000)
+        # Example: 50% volume -> 50 * 10000 = 500000 raw value
         tv_volume = volume * VOLUME_MULTIPLIER
         
         soap_body = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
@@ -679,7 +686,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             _LOGGER.warning("Failed to set volume to %d - no response", volume)
             return None
         
-        # Parse the VolumeResponse to get the actual volume set (returns 0-99)
+        # Parse the VolumeResponse to get the actual volume set (returns 0-100)
         actual_volume = self._parse_volume_response(resp_text, "SetVolume")
         if actual_volume is not None:
             _LOGGER.debug("SetVolume: requested %d, TV confirmed %d", volume, actual_volume)
