@@ -553,7 +553,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             volume_response = self._find_response_element(root, "VolumeResponse")
             
             if volume_response is None:
-                _LOGGER.debug("Could not find VolumeResponse element in %s response (root tag: %s)", operation, root.tag)
+                _LOGGER.warning("Could not find VolumeResponse element in %s response (root tag: %s)", operation, root.tag)
+                _LOGGER.warning("%s raw response (first 500 chars): %s", operation, resp_text[:500] if len(resp_text) > 500 else resp_text)
                 self._log_parse_failure(operation, resp_text, root)
                 return None
             
@@ -565,6 +566,13 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             if value is None:
                 # Fallback: try without any namespace
                 value = volume_response.find("Value")
+            if value is None:
+                # Final fallback: search by local name (ignores namespace)
+                # This handles cases where the TV uses an unexpected namespace prefix
+                for child in volume_response:
+                    if self._get_local_name(child.tag) == "Value":
+                        value = child
+                        break
             
             if value is not None and value.text:
                 volume_str = value.text.strip()
@@ -581,7 +589,11 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 _LOGGER.debug("%s response: parsed volume %d from raw value '%s'", operation, volume, value.text)
                 return volume
             else:
-                _LOGGER.debug("Could not find Value element in VolumeResponse from %s", operation)
+                _LOGGER.warning("Could not find Value element in VolumeResponse from %s", operation)
+                # Log VolumeResponse children to help diagnose
+                vr_children = list(volume_response)
+                _LOGGER.warning("%s VolumeResponse has %d children: %s", operation, len(vr_children), 
+                               [self._get_local_name(c.tag) for c in vr_children])
                 self._log_parse_failure(operation, resp_text, root)
         except ValueError as err:
             _LOGGER.error("Invalid volume value in %s response: %s", operation, err)
