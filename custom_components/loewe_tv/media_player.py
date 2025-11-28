@@ -1392,14 +1392,40 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             _LOGGER.debug("Mute already at desired state %s", mute)
 
     async def async_media_next_track(self) -> None:
-        """Switch to the next channel."""
-        _LOGGER.debug("Switching to next channel")
-        await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_CHANNEL_UP)
+        """Switch to the next channel (channel up)."""
+        _LOGGER.debug("Switching to next channel (channel up)")
+        success = await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_CHANNEL_UP)
+        if success:
+            # Small delay to allow TV to process the channel change
+            await asyncio.sleep(0.5)
+            # Update playback info to reflect the channel change
+            playback = await self._hass.async_add_executor_job(self._get_current_playback)
+            if playback:
+                locator = playback.get("locator")
+                self._update_media_info_from_locator(locator)
+                _LOGGER.debug("Channel changed to: %s", self._media_title)
+            # Notify Home Assistant that the state has changed
+            self.async_write_ha_state()
+        else:
+            _LOGGER.warning("Failed to send channel up RC key")
 
     async def async_media_previous_track(self) -> None:
-        """Switch to the previous channel."""
-        _LOGGER.debug("Switching to previous channel")
-        await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_CHANNEL_DOWN)
+        """Switch to the previous channel (channel down)."""
+        _LOGGER.debug("Switching to previous channel (channel down)")
+        success = await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_CHANNEL_DOWN)
+        if success:
+            # Small delay to allow TV to process the channel change
+            await asyncio.sleep(0.5)
+            # Update playback info to reflect the channel change
+            playback = await self._hass.async_add_executor_job(self._get_current_playback)
+            if playback:
+                locator = playback.get("locator")
+                self._update_media_info_from_locator(locator)
+                _LOGGER.debug("Channel changed to: %s", self._media_title)
+            # Notify Home Assistant that the state has changed
+            self.async_write_ha_state()
+        else:
+            _LOGGER.warning("Failed to send channel down RC key")
 
     async def async_media_play(self) -> None:
         """Send play command to the TV."""
