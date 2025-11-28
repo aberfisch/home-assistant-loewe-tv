@@ -16,6 +16,7 @@ from homeassistant.components.media_player import (
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
     MediaPlayerState,
+    MediaType,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_MAC, CONF_NAME, CONF_PORT
@@ -207,6 +208,15 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     def source_list(self) -> list[str]:
         """Return a list of available input sources."""
         return SOURCE_LIST
+    def media_content_type(self) -> MediaType | None:
+        """Content type of current playing media.
+        
+        Returns MediaType.CHANNEL when TV is on to enable channel controls
+        (next/previous track buttons) in the Home Assistant UI.
+        """
+        if self._state == MediaPlayerState.ON:
+            return MediaType.CHANNEL
+        return None
 
     def _send_wol(self) -> None:
         """Send a Wake-on-LAN magic packet to the TV."""
