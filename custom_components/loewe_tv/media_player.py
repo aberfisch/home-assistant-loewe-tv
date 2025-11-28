@@ -891,8 +891,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         # Handle HDMI inputs (e.g., scart://hdmi1)
         if locator.startswith("scart://hdmi"):
             hdmi_num = locator.replace("scart://hdmi", "")
-            # Validate that hdmi_num is a valid digit (1, 2, or 3)
-            if hdmi_num and hdmi_num.isdigit():
+            # Validate that hdmi_num is a valid HDMI port number (1, 2, or 3)
+            if hdmi_num in ('1', '2', '3'):
                 return f"HDMI{hdmi_num}"
             # Fall through to return the locator as-is for invalid HDMI numbers
         
@@ -1204,8 +1204,9 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         )
         
         if success:
-            # Update cached source immediately for responsive UI
+            # Update cached source and media title immediately for responsive UI
             self._source = source
+            self._media_title = self._format_channel_title(locator)
             _LOGGER.debug("Successfully switched to source %s", source)
             # Notify Home Assistant that the state has changed
             self.async_write_ha_state()
