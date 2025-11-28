@@ -56,6 +56,9 @@ MAX_DEBUG_CHILDREN = 3  # Maximum number of child elements to log for debugging
 SOAP_TIMEOUT = 5  # Timeout for SOAP requests in seconds
 REACHABILITY_TIMEOUT = 3  # Timeout for reachability check in seconds
 
+# Channel list settings
+MAX_CHANNEL_LIST_ITEMS = 1000  # Maximum number of channels to fetch
+
 # Loewe TV remote control keycodes (alphabet: l2700)
 RC_KEY_POWER = 12
 RC_KEY_MUTE = 13
@@ -149,6 +152,10 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         self._device_name = "Home Assistant"
         self._device_uuid = mac  # Use MAC as device UUID
         self._requester_name = "Home Assistant Loewe TV Integration"
+        
+        # Channel list cache: maps locator (e.g., "dvb://1") to channel name
+        self._channel_cache: dict[str, str] = {}
+        self._channel_list_fetched = False
         
         # Use MAC address as unique ID since it's unique per device
         self._attr_unique_id = mac.replace(":", "").lower()
@@ -887,12 +894,19 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     def _format_channel_title(self, locator: str) -> str:
         """Format the locator into a user-friendly channel title.
         
+        First checks the channel cache for the actual channel name.
+        Falls back to a formatted locator if channel is not in cache.
+        
         Args:
             locator: The media locator URI (e.g., 'dvb://1', 'http://example.com/stream')
             
         Returns:
-            Formatted channel title
+            Formatted channel title (preferably the actual channel name from TV)
         """
+        # First check if we have this channel in our cache
+        if locator in self._channel_cache:
+            return self._channel_cache[locator]
+        
         # Handle DVB channels (e.g., dvb://1)
         if locator.startswith("dvb://"):
             channel_id = locator.replace("dvb://", "")
@@ -1004,6 +1018,73 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             _LOGGER.error("Error processing current playback response: %s", err)
         return None
 
+    def _get_channel_list(self, channel_list_view: str = "tv://Favorites/All") -> dict[str, str]:
+        """Get the channel list from the TV and build a locator-to-name mapping.
+        
+        Args:
+            channel_list_view: The channel list view to fetch (default: "tv://Favorites/All")
+            
+        Returns:
+            Dictionary mapping channel locator (e.g., "dvb://1") to channel name
+        """
+        if not self._ensure_authenticated():
+            return {}
+        
+        soap_body = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+            xmlns:ltv="{NAMESPACE}">
+          <soapenv:Header/>
+          <soapenv:Body>
+            <ltv:GetChannelList>
+              <ltv:fcid>{self._fcid}</ltv:fcid>
+              <ltv:ClientId>{self._client_id}</ltv:ClientId>
+              <ltv:ChannelListView>{channel_list_view}</ltv:ChannelListView>
+              <ltv:QueryParameters>
+                <ltv:Range startIndex="0" maxItems="{MAX_CHANNEL_LIST_ITEMS}"/>
+              </ltv:QueryParameters>
+            </ltv:GetChannelList>
+          </soapenv:Body>
+        </soapenv:Envelope>
+        """
+        
+        resp_text = self._send_soap_request(soap_body, "GetChannelList")
+        if not resp_text:
+            _LOGGER.debug("No response from GetChannelList request")
+            return {}
+        
+        channel_map: dict[str, str] = {}
+        try:
+            root = ET.fromstring(resp_text)
+            ns = {"ltv": NAMESPACE}
+            
+            # Find all ResultItemReference elements which contain channel info
+            # Each ResultItemReference has attributes: locator, caption (channel name)
+            result_items = root.findall(".//ltv:ResultItemReference", ns)
+            if not result_items:
+                # Fallback: try with explicit namespace
+                result_items = root.findall(f".//{{{NAMESPACE}}}ResultItemReference")
+            if not result_items:
+                # Fallback: try without namespace
+                result_items = root.findall(".//ResultItemReference")
+            
+            for item in result_items:
+                locator = item.get("locator")
+                caption = item.get("caption")
+                if locator and caption:
+                    channel_map[locator] = caption
+            
+            _LOGGER.debug("Fetched %d channels from TV", len(channel_map))
+            if channel_map:
+                # Log first few entries for debugging
+                sample_entries = list(channel_map.items())[:3]
+                _LOGGER.debug("Sample channels: %s", sample_entries)
+                
+        except ET.ParseError as err:
+            _LOGGER.error("Error parsing channel list XML response: %s", err)
+        except Exception as err:
+            _LOGGER.error("Error processing channel list response: %s", err)
+        
+        return channel_map
+
     async def async_update(self) -> None:
         """Retrieve the latest data from the TV."""
         _LOGGER.debug("Updating Loewe TV state")
@@ -1068,6 +1149,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                     # Re-authentication failed but TV is reachable - might need pairing
                     _LOGGER.warning("TV is reachable but re-authentication failed, may need pairing")
                     self._state = MediaPlayerState.OFF
+                    self._channel_list_fetched = False
+                    self._channel_cache = {}
                     return
             else:
                 # TV is not reachable at all
@@ -1075,6 +1158,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 self._state = MediaPlayerState.OFF
                 # Reset client_id to force re-authentication on next successful connection
                 self._client_id = None
+                self._channel_list_fetched = False
+                self._channel_cache = {}
                 return
         else:
             # Successfully got volume, TV is ON
@@ -1086,6 +1171,15 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             mute = await self._hass.async_add_executor_job(self._get_mute)
             if mute is not None:
                 self._is_volume_muted = mute
+
+        # Fetch channel list once when TV is ON and we haven't fetched it yet
+        # This builds the locator-to-name mapping for displaying channel names
+        if not self._channel_list_fetched:
+            channel_map = await self._hass.async_add_executor_job(self._get_channel_list)
+            if channel_map:
+                self._channel_cache = channel_map
+                self._channel_list_fetched = True
+                _LOGGER.info("Channel list fetched successfully with %d channels", len(channel_map))
 
         # Get current playback information (channel/media) if not already fetched
         if not playback_fetched:
