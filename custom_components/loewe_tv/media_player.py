@@ -891,7 +891,10 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         # Handle HDMI inputs (e.g., scart://hdmi1)
         if locator.startswith("scart://hdmi"):
             hdmi_num = locator.replace("scart://hdmi", "")
-            return f"HDMI{hdmi_num}"
+            # Validate that hdmi_num is a valid digit (1, 2, or 3)
+            if hdmi_num and hdmi_num.isdigit():
+                return f"HDMI{hdmi_num}"
+            # Fall through to return the locator as-is for invalid HDMI numbers
         
         # Handle TV/Radio live modes
         if locator == "live://TV":
@@ -934,6 +937,20 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             return SOURCE_TV
         
         return None
+
+    def _update_media_info_from_locator(self, locator: str | None) -> None:
+        """Update media title and source from a playback locator.
+        
+        Args:
+            locator: The media locator URI, or None to clear the media info
+        """
+        if locator:
+            self._media_title = self._format_channel_title(locator)
+            self._source = self._get_source_from_locator(locator)
+            _LOGGER.debug("Current playback locator: %s, title: %s, source: %s", locator, self._media_title, self._source)
+        else:
+            self._media_title = None
+            self._source = None
 
     def _get_current_playback(self) -> dict | None:
         """Get current playback information (channel/media)."""
@@ -1030,11 +1047,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                                 _LOGGER.info("TV state verified as ON via GetCurrentPlayback after re-authentication")
                                 self._state = MediaPlayerState.ON
                                 # Update media title and source from playback info
-                                locator = playback.get("locator")
-                                if locator:
-                                    self._media_title = self._format_channel_title(locator)
-                                    self._source = self._get_source_from_locator(locator)
-                                    _LOGGER.debug("Current playback locator: %s, title: %s, source: %s", locator, self._media_title, self._source)
+                                self._update_media_info_from_locator(playback.get("locator"))
                             else:
                                 # All SOAP operations failed despite successful authentication
                                 # This might indicate TV is starting up or in an unusual state
@@ -1068,15 +1081,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         if not playback_fetched:
             playback = await self._hass.async_add_executor_job(self._get_current_playback)
             locator = playback.get("locator") if playback is not None else None
-            if locator:
-                # Format the locator into a user-friendly channel title
-                self._media_title = self._format_channel_title(locator)
-                # Detect and set the current source from the locator
-                self._source = self._get_source_from_locator(locator)
-                _LOGGER.debug("Current playback locator: %s, title: %s, source: %s", locator, self._media_title, self._source)
-            else:
-                self._media_title = None
-                self._source = None
+            self._update_media_info_from_locator(locator)
 
     async def async_turn_on(self) -> None:
         """Turn the TV on using Wake-on-LAN and power RC key."""
