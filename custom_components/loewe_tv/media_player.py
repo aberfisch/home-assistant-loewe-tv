@@ -48,6 +48,9 @@ VOLUME_MULTIPLIER = 10000  # Multiplier/divisor to convert between 0-100% and TV
 # WOL and retry settings
 WOL_WAIT_TIME = 10  # Seconds to wait for TV to wake up after WOL
 RETRY_DELAY = 3  # Seconds to wait between retry attempts
+
+# Channel change settings
+CHANNEL_CHANGE_DELAY = 0.5  # Seconds to wait after channel change before querying new playback info
 MAX_AUTH_RETRIES = 3  # Maximum authentication retry attempts
 
 # Debug logging settings
@@ -1391,21 +1394,33 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         else:
             _LOGGER.debug("Mute already at desired state %s", mute)
 
+    async def _update_after_channel_change(self) -> None:
+        """Update playback info and notify Home Assistant after a channel change.
+        
+        This helper method handles the common logic for updating state after
+        channel up/down operations:
+        1. Wait for TV to process the channel change
+        2. Fetch current playback info
+        3. Update media title and source
+        4. Notify Home Assistant of the state change
+        """
+        # Small delay to allow TV to process the channel change
+        await asyncio.sleep(CHANNEL_CHANGE_DELAY)
+        # Update playback info to reflect the channel change
+        playback = await self._hass.async_add_executor_job(self._get_current_playback)
+        if playback:
+            locator = playback.get("locator")
+            self._update_media_info_from_locator(locator)
+            _LOGGER.debug("Channel changed to: %s", self._media_title)
+        # Notify Home Assistant that the state has changed
+        self.async_write_ha_state()
+
     async def async_media_next_track(self) -> None:
         """Switch to the next channel (channel up)."""
         _LOGGER.debug("Switching to next channel (channel up)")
         success = await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_CHANNEL_UP)
         if success:
-            # Small delay to allow TV to process the channel change
-            await asyncio.sleep(0.5)
-            # Update playback info to reflect the channel change
-            playback = await self._hass.async_add_executor_job(self._get_current_playback)
-            if playback:
-                locator = playback.get("locator")
-                self._update_media_info_from_locator(locator)
-                _LOGGER.debug("Channel changed to: %s", self._media_title)
-            # Notify Home Assistant that the state has changed
-            self.async_write_ha_state()
+            await self._update_after_channel_change()
         else:
             _LOGGER.warning("Failed to send channel up RC key")
 
@@ -1414,16 +1429,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         _LOGGER.debug("Switching to previous channel (channel down)")
         success = await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_CHANNEL_DOWN)
         if success:
-            # Small delay to allow TV to process the channel change
-            await asyncio.sleep(0.5)
-            # Update playback info to reflect the channel change
-            playback = await self._hass.async_add_executor_job(self._get_current_playback)
-            if playback:
-                locator = playback.get("locator")
-                self._update_media_info_from_locator(locator)
-                _LOGGER.debug("Channel changed to: %s", self._media_title)
-            # Notify Home Assistant that the state has changed
-            self.async_write_ha_state()
+            await self._update_after_channel_change()
         else:
             _LOGGER.warning("Failed to send channel down RC key")
 
