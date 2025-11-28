@@ -1,6 +1,6 @@
 # Home Assistant Loewe TV Integration
 
-A custom Home Assistant integration for controlling Loewe Television sets via their SOAP API. This plugin provides comprehensive control over your Loewe TV including power management, volume control, and channel switching.
+A custom Home Assistant integration for controlling Loewe Television sets via their SOAP API. This plugin provides comprehensive control over your Loewe TV including power management, volume control, channel switching, and input source selection.
 
 ## Features
 
@@ -20,6 +20,12 @@ A custom Home Assistant integration for controlling Loewe Television sets via th
 - Switch to next channel (Channel Up) via remote control keys
 - Switch to previous channel (Channel Down) via remote control keys
 - Switch to specific channel by number using ZapToMedia
+
+### Input Source Selection
+- Switch between HDMI inputs (HDMI1, HDMI2, HDMI3)
+- Switch to TV mode (live TV tuner)
+- Switch to Radio mode (radio tuner)
+- Current source detection and display
 
 ## Installation
 
@@ -140,6 +146,22 @@ data:
   media_content_id: "24"
 ```
 
+#### Select Input Source (HDMI/TV/Radio)
+```yaml
+service: media_player.select_source
+target:
+  entity_id: media_player.living_room_tv
+data:
+  source: "HDMI1"
+```
+
+Available sources:
+- `TV` - Switch to TV tuner mode
+- `Radio` - Switch to Radio tuner mode
+- `HDMI1` - Switch to HDMI 1 input
+- `HDMI2` - Switch to HDMI 2 input
+- `HDMI3` - Switch to HDMI 3 input
+
 ## Requirements
 
 - Home Assistant 2023.1 or newer
@@ -202,7 +224,12 @@ This integration uses the following SOAP operations from the Loewe TV WSDL (`htt
   - Volume Down (key 17)
   - Channel Up (key 32)
   - Channel Down (key 33)
-- **ZapToMedia** - Switches to a specific channel using media locator
+- **ZapToMedia** - Switches to a specific channel or input source using media locator:
+  - Channel: `dvb://<channel_number>` (e.g., `dvb://1` for channel 1)
+  - HDMI inputs: `scart://hdmi1`, `scart://hdmi2`, `scart://hdmi3`
+  - TV mode: `live://TV`
+  - Radio mode: `live://Radio`
+- **GetCurrentPlayback** - Retrieves current playback/input source information
 
 ## License
 

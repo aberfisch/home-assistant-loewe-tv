@@ -63,6 +63,35 @@ RC_KEY_VOLUME_DOWN = 17
 RC_KEY_CHANNEL_UP = 32
 RC_KEY_CHANNEL_DOWN = 33
 
+# Source names for input selection
+SOURCE_TV = "TV"
+SOURCE_RADIO = "Radio"
+SOURCE_HDMI1 = "HDMI1"
+SOURCE_HDMI2 = "HDMI2"
+SOURCE_HDMI3 = "HDMI3"
+
+# Mapping from source names to locator URIs used by ZapToMedia
+# Based on Loewe TV API documentation
+SOURCE_TO_LOCATOR = {
+    SOURCE_TV: "live://TV",
+    SOURCE_RADIO: "live://Radio",
+    SOURCE_HDMI1: "scart://hdmi1",
+    SOURCE_HDMI2: "scart://hdmi2",
+    SOURCE_HDMI3: "scart://hdmi3",
+}
+
+# Reverse mapping from locator prefix to source name
+LOCATOR_TO_SOURCE = {
+    "live://TV": SOURCE_TV,
+    "live://Radio": SOURCE_RADIO,
+    "scart://hdmi1": SOURCE_HDMI1,
+    "scart://hdmi2": SOURCE_HDMI2,
+    "scart://hdmi3": SOURCE_HDMI3,
+}
+
+# List of available sources for source selection
+SOURCE_LIST = [SOURCE_TV, SOURCE_RADIO, SOURCE_HDMI1, SOURCE_HDMI2, SOURCE_HDMI3]
+
 
 async def async_setup_platform(
     hass: HomeAssistant,
@@ -109,6 +138,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         self._volume = 0
         self._is_volume_muted = False
         self._media_title = None
+        self._source = None  # Current source (HDMI1, HDMI2, HDMI3, TV, Radio)
         self._path = "/loewe_tablet_0001"
         
         # Authentication parameters
@@ -135,6 +165,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             | MediaPlayerEntityFeature.NEXT_TRACK
             | MediaPlayerEntityFeature.PREVIOUS_TRACK
             | MediaPlayerEntityFeature.PLAY_MEDIA
+            | MediaPlayerEntityFeature.SELECT_SOURCE
         )
 
     @property
@@ -166,6 +197,16 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     def media_title(self) -> str | None:
         """Title of current playing media (channel name)."""
         return self._media_title
+
+    @property
+    def source(self) -> str | None:
+        """Return the current input source (HDMI1, HDMI2, HDMI3, TV, Radio)."""
+        return self._source
+
+    @property
+    def source_list(self) -> list[str]:
+        """Return a list of available input sources."""
+        return SOURCE_LIST
 
     def _send_wol(self) -> None:
         """Send a Wake-on-LAN magic packet to the TV."""
@@ -847,6 +888,17 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             channel_id = locator.replace("dvb://", "")
             return f"Channel {channel_id}"
         
+        # Handle HDMI inputs (e.g., scart://hdmi1)
+        if locator.startswith("scart://hdmi"):
+            hdmi_num = locator.replace("scart://hdmi", "")
+            return f"HDMI{hdmi_num}"
+        
+        # Handle TV/Radio live modes
+        if locator == "live://TV":
+            return "TV"
+        if locator == "live://Radio":
+            return "Radio"
+        
         # Handle HTTP/HTTPS streaming URLs - extract domain or path
         if locator.startswith(("http://", "https://")):
             # Try to extract a meaningful name from the URL
@@ -863,6 +915,25 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         
         # For any other locator format, return as-is
         return locator
+
+    def _get_source_from_locator(self, locator: str) -> str | None:
+        """Get the source name from a locator URI.
+        
+        Args:
+            locator: The media locator URI (e.g., 'scart://hdmi1', 'live://TV')
+            
+        Returns:
+            Source name (HDMI1, HDMI2, HDMI3, TV, Radio) or None if not a source locator
+        """
+        # Check for exact match in LOCATOR_TO_SOURCE mapping
+        if locator in LOCATOR_TO_SOURCE:
+            return LOCATOR_TO_SOURCE[locator]
+        
+        # For DVB locators, assume TV mode
+        if locator.startswith("dvb://"):
+            return SOURCE_TV
+        
+        return None
 
     def _get_current_playback(self) -> dict | None:
         """Get current playback information (channel/media)."""
@@ -958,11 +1029,12 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                                 # GetCurrentPlayback succeeded - TV is ON
                                 _LOGGER.info("TV state verified as ON via GetCurrentPlayback after re-authentication")
                                 self._state = MediaPlayerState.ON
-                                # Update media title from playback info
+                                # Update media title and source from playback info
                                 locator = playback.get("locator")
                                 if locator:
                                     self._media_title = self._format_channel_title(locator)
-                                    _LOGGER.debug("Current playback locator: %s, title: %s", locator, self._media_title)
+                                    self._source = self._get_source_from_locator(locator)
+                                    _LOGGER.debug("Current playback locator: %s, title: %s, source: %s", locator, self._media_title, self._source)
                             else:
                                 # All SOAP operations failed despite successful authentication
                                 # This might indicate TV is starting up or in an unusual state
@@ -999,9 +1071,12 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             if locator:
                 # Format the locator into a user-friendly channel title
                 self._media_title = self._format_channel_title(locator)
-                _LOGGER.debug("Current playback locator: %s, title: %s", locator, self._media_title)
+                # Detect and set the current source from the locator
+                self._source = self._get_source_from_locator(locator)
+                _LOGGER.debug("Current playback locator: %s, title: %s, source: %s", locator, self._media_title, self._source)
             else:
                 self._media_title = None
+                self._source = None
 
     async def async_turn_on(self) -> None:
         """Turn the TV on using Wake-on-LAN and power RC key."""
@@ -1105,6 +1180,32 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         """Switch to the previous channel."""
         _LOGGER.debug("Switching to previous channel")
         await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_CHANNEL_DOWN)
+
+    async def async_select_source(self, source: str) -> None:
+        """Select input source (HDMI1, HDMI2, HDMI3, TV, Radio).
+        
+        Args:
+            source: Source name to switch to
+        """
+        if source not in SOURCE_TO_LOCATOR:
+            _LOGGER.error("Unknown source: %s. Available sources: %s", source, SOURCE_LIST)
+            return
+        
+        locator = SOURCE_TO_LOCATOR[source]
+        _LOGGER.info("Switching to source %s (locator: %s)", source, locator)
+        
+        success = await self._hass.async_add_executor_job(
+            self._zap_to_media, "MainVideo", locator
+        )
+        
+        if success:
+            # Update cached source immediately for responsive UI
+            self._source = source
+            _LOGGER.debug("Successfully switched to source %s", source)
+            # Notify Home Assistant that the state has changed
+            self.async_write_ha_state()
+        else:
+            _LOGGER.error("Failed to switch to source %s", source)
 
     async def async_play_media(self, media_type: str, media_id: str, **kwargs: Any) -> None:
         """Switch to a specific channel by number or locator."""
