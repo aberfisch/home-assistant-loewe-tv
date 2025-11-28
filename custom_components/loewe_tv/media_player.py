@@ -215,6 +215,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     def source_list(self) -> list[str]:
         """Return a list of available input sources."""
         return SOURCE_LIST
+
+    @property
     def media_content_type(self) -> MediaType | None:
         """Content type of current playing media.
         
