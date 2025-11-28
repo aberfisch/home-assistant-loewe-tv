@@ -59,6 +59,9 @@ REACHABILITY_TIMEOUT = 3  # Timeout for reachability check in seconds
 # Channel list settings
 MAX_CHANNEL_LIST_ITEMS = 1000  # Maximum number of channels to fetch
 
+# ZapToMedia success indicators - values returned by TV that indicate successful operation
+ZAPTOMEDIA_SUCCESS_VALUES = ("0", "ok", "success", "true")
+
 # Loewe TV remote control keycodes (alphabet: l2700)
 RC_KEY_POWER = 12
 RC_KEY_MUTE = 13
@@ -935,8 +938,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             if zap_response is None:
                 _LOGGER.warning("Could not find ZapToMediaResponse element in response for locator: %s", locator)
                 _LOGGER.debug("ZapToMedia raw response: %s", resp_text[:500] if len(resp_text) > 500 else resp_text)
-                # Still return True as we got some response - the TV might have different response format
-                return True
+                # Return False since we couldn't find the expected response element
+                return False
             
             # Find Result element within ZapToMediaResponse
             result_elem = zap_response.find("ltv:Result", ns)
@@ -954,9 +957,9 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             if result_elem is not None and result_elem.text:
                 result_value = result_elem.text.strip()
                 _LOGGER.debug("ZapToMedia result for locator %s: %s", locator, result_value)
-                # Check if result indicates success (typically "0" or "ok" or empty string)
+                # Check if result indicates success
                 # Different TV models may return different success values
-                if not result_value or result_value.lower() in ("0", "ok", "success", "true"):
+                if not result_value or result_value.lower() in ZAPTOMEDIA_SUCCESS_VALUES:
                     return True
                 else:
                     _LOGGER.warning("ZapToMedia returned non-success result for locator %s: %s", locator, result_value)
@@ -968,12 +971,11 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         except ET.ParseError as err:
             _LOGGER.error("Error parsing ZapToMedia response XML: %s", err)
             _LOGGER.debug("ZapToMedia raw response: %s", resp_text[:500] if len(resp_text) > 500 else resp_text)
+            return False
         except Exception as err:
             _LOGGER.error("Error processing ZapToMedia response: %s", err)
-        
-        # If we got a response but couldn't parse it, assume success
-        # The TV might be using a different response format
-        return True
+            _LOGGER.warning("Could not verify ZapToMedia result, assuming failure for locator: %s", locator)
+            return False
 
     def _format_channel_title(self, locator: str) -> str:
         """Format the locator into a user-friendly channel title.
