@@ -1055,6 +1055,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                     _LOGGER.warning("TV is reachable but re-authentication failed, may need pairing")
                     self._state = MediaPlayerState.OFF
                     self._channel_list_fetched = False
+                    self._channel_cache = {}
                     return
             else:
                 # TV is not reachable at all
@@ -1063,6 +1064,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 # Reset client_id to force re-authentication on next successful connection
                 self._client_id = None
                 self._channel_list_fetched = False
+                self._channel_cache = {}
                 return
         else:
             # Successfully got volume, TV is ON
