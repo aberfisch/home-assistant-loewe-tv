@@ -76,19 +76,24 @@ SOURCE_HDMI2 = "HDMI2"
 SOURCE_HDMI3 = "HDMI3"
 
 # Mapping from source names to locator URIs used by ZapToMedia
-# Based on Loewe TV API documentation
+# Loewe TVs use 'extav://' scheme for external AV inputs like HDMI
+# The format is extav://HDMI{n} where n is the port number (1, 2, 3)
 SOURCE_TO_LOCATOR = {
     SOURCE_TV: "live://TV",
     SOURCE_RADIO: "live://Radio",
-    SOURCE_HDMI1: "scart://hdmi1",
-    SOURCE_HDMI2: "scart://hdmi2",
-    SOURCE_HDMI3: "scart://hdmi3",
+    SOURCE_HDMI1: "extav://HDMI1",
+    SOURCE_HDMI2: "extav://HDMI2",
+    SOURCE_HDMI3: "extav://HDMI3",
 }
 
 # Reverse mapping from locator prefix to source name
 LOCATOR_TO_SOURCE = {
     "live://TV": SOURCE_TV,
     "live://Radio": SOURCE_RADIO,
+    "extav://HDMI1": SOURCE_HDMI1,
+    "extav://HDMI2": SOURCE_HDMI2,
+    "extav://HDMI3": SOURCE_HDMI3,
+    # Also support legacy/alternative formats that might be returned by TV
     "scart://hdmi1": SOURCE_HDMI1,
     "scart://hdmi2": SOURCE_HDMI2,
     "scart://hdmi3": SOURCE_HDMI3,
@@ -867,7 +872,15 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         return resp_text is not None
 
     def _zap_to_media(self, player: str, locator: str) -> bool:
-        """Switch to a specific media channel."""
+        """Switch to a specific media channel.
+        
+        Args:
+            player: The player to use (e.g., "MainVideo")
+            locator: The media locator URI (e.g., "dvb://1", "extav://HDMI1")
+            
+        Returns:
+            True if the operation was successful, False otherwise
+        """
         if not self._ensure_authenticated():
             return False
         
@@ -886,7 +899,60 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         """
         
         resp_text = self._send_soap_request(soap_body, "ZapToMedia")
-        return resp_text is not None
+        if not resp_text:
+            _LOGGER.warning("No response from ZapToMedia request for locator: %s", locator)
+            return False
+        
+        # Parse response and check for success
+        try:
+            root = ET.fromstring(resp_text)
+            ns = {"ltv": NAMESPACE}
+            
+            # Find ZapToMediaResponse element
+            zap_response = self._find_response_element(root, "ZapToMediaResponse")
+            
+            if zap_response is None:
+                _LOGGER.warning("Could not find ZapToMediaResponse element in response for locator: %s", locator)
+                _LOGGER.debug("ZapToMedia raw response: %s", resp_text[:500] if len(resp_text) > 500 else resp_text)
+                # Still return True as we got some response - the TV might have different response format
+                return True
+            
+            # Find Result element within ZapToMediaResponse
+            result_elem = zap_response.find("ltv:Result", ns)
+            if result_elem is None:
+                result_elem = zap_response.find("{%s}Result" % NAMESPACE)
+            if result_elem is None:
+                result_elem = zap_response.find("Result")
+            if result_elem is None:
+                # Search by local name
+                for child in zap_response:
+                    if self._get_local_name(child.tag) == "Result":
+                        result_elem = child
+                        break
+            
+            if result_elem is not None and result_elem.text:
+                result_value = result_elem.text.strip()
+                _LOGGER.debug("ZapToMedia result for locator %s: %s", locator, result_value)
+                # Check if result indicates success (typically "0" or "ok" or empty string)
+                # Different TV models may return different success values
+                if result_value.lower() in ("", "0", "ok", "success", "true"):
+                    return True
+                else:
+                    _LOGGER.warning("ZapToMedia returned non-success result for locator %s: %s", locator, result_value)
+                    return False
+            else:
+                _LOGGER.debug("No Result element found in ZapToMediaResponse, assuming success")
+                return True
+                
+        except ET.ParseError as err:
+            _LOGGER.error("Error parsing ZapToMedia response XML: %s", err)
+            _LOGGER.debug("ZapToMedia raw response: %s", resp_text[:500] if len(resp_text) > 500 else resp_text)
+        except Exception as err:
+            _LOGGER.error("Error processing ZapToMedia response: %s", err)
+        
+        # If we got a response but couldn't parse it, assume success
+        # The TV might be using a different response format
+        return True
 
     def _format_channel_title(self, locator: str) -> str:
         """Format the locator into a user-friendly channel title.
@@ -909,7 +975,15 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             channel_id = locator.replace("dvb://", "")
             return f"Channel {channel_id}"
         
-        # Handle HDMI inputs (e.g., scart://hdmi1)
+        # Handle HDMI inputs with extav:// format (e.g., extav://HDMI1)
+        if locator.startswith("extav://HDMI"):
+            hdmi_num = locator.replace("extav://HDMI", "")
+            # Validate that hdmi_num is a valid HDMI port number (1, 2, or 3)
+            if hdmi_num in ('1', '2', '3'):
+                return f"HDMI{hdmi_num}"
+            # Fall through to return the locator as-is for invalid HDMI numbers
+        
+        # Handle HDMI inputs with legacy scart:// format (e.g., scart://hdmi1)
         if locator.startswith("scart://hdmi"):
             hdmi_num = locator.replace("scart://hdmi", "")
             # Validate that hdmi_num is a valid HDMI port number (1, 2, or 3)
@@ -944,7 +1018,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         """Get the source name from a locator URI.
         
         Args:
-            locator: The media locator URI (e.g., 'scart://hdmi1', 'live://TV')
+            locator: The media locator URI (e.g., 'extav://HDMI1', 'live://TV')
             
         Returns:
             Source name (HDMI1, HDMI2, HDMI3, TV, Radio) or None if not a source locator
@@ -952,6 +1026,26 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         # Check for exact match in LOCATOR_TO_SOURCE mapping
         if locator in LOCATOR_TO_SOURCE:
             return LOCATOR_TO_SOURCE[locator]
+        
+        # Handle extav:// format with case variations (e.g., extav://hdmi1)
+        if locator.startswith("extav://"):
+            hdmi_part = locator.replace("extav://", "").upper()
+            if hdmi_part == "HDMI1":
+                return SOURCE_HDMI1
+            elif hdmi_part == "HDMI2":
+                return SOURCE_HDMI2
+            elif hdmi_part == "HDMI3":
+                return SOURCE_HDMI3
+        
+        # Handle scart:// format (legacy) with case variations
+        if locator.startswith("scart://hdmi"):
+            hdmi_num = locator.replace("scart://hdmi", "")
+            if hdmi_num == "1":
+                return SOURCE_HDMI1
+            elif hdmi_num == "2":
+                return SOURCE_HDMI2
+            elif hdmi_num == "3":
+                return SOURCE_HDMI3
         
         # For DVB locators, assume TV mode
         if locator.startswith("dvb://"):
