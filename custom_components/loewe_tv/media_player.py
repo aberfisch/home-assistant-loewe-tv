@@ -175,6 +175,10 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             | MediaPlayerEntityFeature.PLAY_MEDIA
             | MediaPlayerEntityFeature.SELECT_SOURCE
         )
+        
+        # Media content type - set to CHANNEL when TV is on to enable channel controls
+        # Using _attr_ pattern to avoid JSON serialization issues with property methods
+        self._attr_media_content_type: MediaType | None = None
 
     @property
     def name(self) -> str:
@@ -215,17 +219,6 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     def source_list(self) -> list[str]:
         """Return a list of available input sources."""
         return SOURCE_LIST
-
-    @property
-    def media_content_type(self) -> MediaType | None:
-        """Content type of current playing media.
-        
-        Returns MediaType.CHANNEL when TV is on to enable channel controls
-        (next/previous track buttons) in the Home Assistant UI.
-        """
-        if self._state == MediaPlayerState.ON:
-            return MediaType.CHANNEL
-        return None
 
     def _send_wol(self) -> None:
         """Send a Wake-on-LAN magic packet to the TV."""
@@ -1151,6 +1144,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                     # Re-authentication failed but TV is reachable - might need pairing
                     _LOGGER.warning("TV is reachable but re-authentication failed, may need pairing")
                     self._state = MediaPlayerState.OFF
+                    self._attr_media_content_type = None
                     self._channel_list_fetched = False
                     self._channel_cache = {}
                     return
@@ -1158,6 +1152,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 # TV is not reachable at all
                 _LOGGER.debug("TV is not reachable, setting state to OFF")
                 self._state = MediaPlayerState.OFF
+                self._attr_media_content_type = None
                 # Reset client_id to force re-authentication on next successful connection
                 self._client_id = None
                 self._channel_list_fetched = False
@@ -1188,6 +1183,10 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             playback = await self._hass.async_add_executor_job(self._get_current_playback)
             locator = playback.get("locator") if playback is not None else None
             self._update_media_info_from_locator(locator)
+
+        # Update media content type based on TV state
+        # Set to CHANNEL when TV is ON to enable channel controls (next/previous track)
+        self._attr_media_content_type = MediaType.CHANNEL if self._state == MediaPlayerState.ON else None
 
     async def async_turn_on(self) -> None:
         """Turn the TV on using Wake-on-LAN and power RC key."""
