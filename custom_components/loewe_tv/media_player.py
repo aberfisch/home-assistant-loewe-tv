@@ -66,6 +66,7 @@ RC_KEY_VOLUME_UP = 16
 RC_KEY_VOLUME_DOWN = 17
 RC_KEY_CHANNEL_UP = 32
 RC_KEY_CHANNEL_DOWN = 33
+RC_KEY_PLAY = 40
 
 # Source names for input selection
 SOURCE_TV = "TV"
@@ -174,6 +175,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             | MediaPlayerEntityFeature.PREVIOUS_TRACK
             | MediaPlayerEntityFeature.PLAY_MEDIA
             | MediaPlayerEntityFeature.SELECT_SOURCE
+            | MediaPlayerEntityFeature.PLAY
         )
         
         # Media content type - set to CHANNEL when TV is on to enable channel controls
@@ -1290,6 +1292,11 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         """Switch to the previous channel."""
         _LOGGER.debug("Switching to previous channel")
         await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_CHANNEL_DOWN)
+
+    async def async_media_play(self) -> None:
+        """Send play command to the TV."""
+        _LOGGER.debug("Sending play command")
+        await self._hass.async_add_executor_job(self._inject_rc_key, RC_KEY_PLAY)
 
     async def async_select_source(self, source: str) -> None:
         """Select input source (HDMI1, HDMI2, HDMI3, TV, Radio).
