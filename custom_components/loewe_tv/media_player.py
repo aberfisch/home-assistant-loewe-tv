@@ -86,17 +86,14 @@ SOURCE_TO_LOCATOR = {
     SOURCE_HDMI3: "extav://HDMI3",
 }
 
-# Reverse mapping from locator prefix to source name
+# Reverse mapping from locator to source name
+# Note: Case-insensitive matching is handled in _get_source_from_locator()
 LOCATOR_TO_SOURCE = {
     "live://TV": SOURCE_TV,
     "live://Radio": SOURCE_RADIO,
     "extav://HDMI1": SOURCE_HDMI1,
     "extav://HDMI2": SOURCE_HDMI2,
     "extav://HDMI3": SOURCE_HDMI3,
-    # Also support legacy/alternative formats that might be returned by TV
-    "scart://hdmi1": SOURCE_HDMI1,
-    "scart://hdmi2": SOURCE_HDMI2,
-    "scart://hdmi3": SOURCE_HDMI3,
 }
 
 # List of available sources for source selection
@@ -415,6 +412,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             # Try with explicit SOAP 1.1 namespace (fallback for edge cases)
             soap_body = root.find(f".//{{{SOAP_NS_1_1}}}Body")
         return soap_body
+
     @staticmethod
     def _get_local_name(tag: str) -> str:
         """Extract local name from an XML tag, stripping namespace if present.
@@ -426,6 +424,29 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             Local name without namespace (e.g., 'localname')
         """
         return tag.split('}')[-1] if '}' in tag else tag
+
+    @staticmethod
+    def _get_hdmi_source_from_identifier(hdmi_identifier: str) -> str | None:
+        """Get the HDMI source constant from an HDMI identifier string.
+        
+        Args:
+            hdmi_identifier: The HDMI identifier (e.g., 'HDMI1', 'hdmi1', '1', 'HDMI2')
+            
+        Returns:
+            Source constant (SOURCE_HDMI1, SOURCE_HDMI2, SOURCE_HDMI3) or None if invalid
+        """
+        # Normalize to uppercase for comparison
+        identifier = hdmi_identifier.upper().strip()
+        
+        # Handle full format like "HDMI1", "HDMI2", "HDMI3"
+        if identifier in ("HDMI1", "1"):
+            return SOURCE_HDMI1
+        elif identifier in ("HDMI2", "2"):
+            return SOURCE_HDMI2
+        elif identifier in ("HDMI3", "3"):
+            return SOURCE_HDMI3
+        
+        return None
 
     def _log_parse_failure(self, operation: str, resp_text: str, root: ET.Element | None = None) -> None:
         """Log parsing failure with response details.
@@ -935,7 +956,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 _LOGGER.debug("ZapToMedia result for locator %s: %s", locator, result_value)
                 # Check if result indicates success (typically "0" or "ok" or empty string)
                 # Different TV models may return different success values
-                if result_value.lower() in ("", "0", "ok", "success", "true"):
+                if not result_value or result_value.lower() in ("0", "ok", "success", "true"):
                     return True
                 else:
                     _LOGGER.warning("ZapToMedia returned non-success result for locator %s: %s", locator, result_value)
@@ -976,19 +997,19 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             return f"Channel {channel_id}"
         
         # Handle HDMI inputs with extav:// format (e.g., extav://HDMI1)
-        if locator.startswith("extav://HDMI"):
-            hdmi_num = locator.replace("extav://HDMI", "")
-            # Validate that hdmi_num is a valid HDMI port number (1, 2, or 3)
-            if hdmi_num in ('1', '2', '3'):
-                return f"HDMI{hdmi_num}"
-            # Fall through to return the locator as-is for invalid HDMI numbers
+        if locator.startswith("extav://"):
+            hdmi_identifier = locator.replace("extav://", "")
+            hdmi_source = self._get_hdmi_source_from_identifier(hdmi_identifier)
+            if hdmi_source:
+                return hdmi_source  # Returns "HDMI1", "HDMI2", or "HDMI3"
+            # Fall through to return the locator as-is for invalid HDMI identifiers
         
         # Handle HDMI inputs with legacy scart:// format (e.g., scart://hdmi1)
         if locator.startswith("scart://hdmi"):
             hdmi_num = locator.replace("scart://hdmi", "")
-            # Validate that hdmi_num is a valid HDMI port number (1, 2, or 3)
-            if hdmi_num in ('1', '2', '3'):
-                return f"HDMI{hdmi_num}"
+            hdmi_source = self._get_hdmi_source_from_identifier(hdmi_num)
+            if hdmi_source:
+                return hdmi_source
             # Fall through to return the locator as-is for invalid HDMI numbers
         
         # Handle TV/Radio live modes
@@ -1029,23 +1050,13 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         
         # Handle extav:// format with case variations (e.g., extav://hdmi1)
         if locator.startswith("extav://"):
-            hdmi_part = locator.replace("extav://", "").upper()
-            if hdmi_part == "HDMI1":
-                return SOURCE_HDMI1
-            elif hdmi_part == "HDMI2":
-                return SOURCE_HDMI2
-            elif hdmi_part == "HDMI3":
-                return SOURCE_HDMI3
+            hdmi_identifier = locator.replace("extav://", "")
+            return self._get_hdmi_source_from_identifier(hdmi_identifier)
         
         # Handle scart:// format (legacy) with case variations
         if locator.startswith("scart://hdmi"):
             hdmi_num = locator.replace("scart://hdmi", "")
-            if hdmi_num == "1":
-                return SOURCE_HDMI1
-            elif hdmi_num == "2":
-                return SOURCE_HDMI2
-            elif hdmi_num == "3":
-                return SOURCE_HDMI3
+            return self._get_hdmi_source_from_identifier(hdmi_num)
         
         # For DVB locators, assume TV mode
         if locator.startswith("dvb://"):
@@ -1066,6 +1077,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         else:
             self._media_title = None
             self._source = None
+
 
     def _get_current_playback(self) -> dict | None:
         """Get current playback information (channel/media)."""
