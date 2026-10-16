@@ -4,6 +4,12 @@ Alle wesentlichen Änderungen werden hier fortlaufend dokumentiert. Geplant und 
 
 ## [Unreleased]
 
+### Entwicklungsstatus (16.10.2026)
+- Entwicklungsbranch `dev/loewe-1.0.2-test` erstellt; `main` bleibt unverändert.
+- Lokales Testpaket 1.0.2 wurde **noch nicht** in diesen Branch übernommen. Daher ist **kein** 1.0.2-Release veröffentlicht.
+- Das aktuelle GitHub-Manifest steht weiterhin auf 1.0.0. Ein Versions-Tag wird erst nach Übernahme und Prüfung des zugehörigen Codes erstellt.
+
+
 ### Geplant
 - Dynamische DVB-C-Senderlistenabfrage und Zuordnung der 197 Sender
 - Korrekte Anzeige des aktuellen Senders anhand des Loewe-Locators
