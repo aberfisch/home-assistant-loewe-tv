@@ -68,10 +68,10 @@ ZAPTOMEDIA_SUCCESS_VALUES = ("0", "ok", "success", "true")
 # Loewe TV remote control keycodes (alphabet: l2700)
 RC_KEY_POWER = 12
 RC_KEY_MUTE = 13
-RC_KEY_VOLUME_UP = 16
-RC_KEY_VOLUME_DOWN = 17
-RC_KEY_CHANNEL_UP = 32
-RC_KEY_CHANNEL_DOWN = 33
+RC_KEY_VOLUME_UP = 21  # VOL_PL, Loewe Remote API 1.0.47, section 9.4.1.1
+RC_KEY_VOLUME_DOWN = 20  # VOL_MI
+RC_KEY_CHANNEL_UP = 24  # PROG_PL (P+)
+RC_KEY_CHANNEL_DOWN = 23  # PROG_MI (P-)
 RC_KEY_PLAY = 40
 # Experimental input key mapping for SL320, requires device validation.
 SOURCE_RC_KEYS = {"TV": 72, "Radio": 53, "HDMI1": 119, "HDMI2": 121, "HDMI3": 122}
