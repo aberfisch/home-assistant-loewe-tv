@@ -1,0 +1,27 @@
+# Loewe TV dashboard card for Home Assistant (Lovelace YAML).
+# Replace the three example entity IDs with the IDs shown under
+# Settings > Devices & services > Entities before adding the card.
+type: vertical-stack
+cards:
+  - type: media-control
+    entity: media_player.loewe_tv
+  - type: horizontal-stack
+    cards:
+      - type: button
+        name: P−
+        icon: mdi:chevron-down
+        entity: button.loewe_tv_sender_p_2
+        tap_action:
+          action: perform-action
+          perform_action: button.press
+          target:
+            entity_id: button.loewe_tv_sender_p_2
+      - type: button
+        name: P+
+        icon: mdi:chevron-up
+        entity: button.loewe_tv_sender_p
+        tap_action:
+          action: perform-action
+          perform_action: button.press
+          target:
+            entity_id: button.loewe_tv_sender_p
