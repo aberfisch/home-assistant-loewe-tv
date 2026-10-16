@@ -13,6 +13,7 @@ class LoeweTVCard extends HTMLElement {
     if (!this.config) return;
     const entity = this.entityId();
     const state = hass.states[entity];
+    if (state?.attributes?.source === this._pendingMode) this._pendingMode = null;
     const key = JSON.stringify([entity, state?.state, state?.attributes, hass.language]);
     if (key !== this._lastKey) { this._lastKey = key; this.render(); }
   }
@@ -38,6 +39,12 @@ class LoeweTVCard extends HTMLElement {
     const channels = sources.filter(s => s.startsWith("Sender: "));
     const inputs = sources.filter(s => !s.startsWith("Sender: "));
     const current = attrs.media_title || attrs.source || "Keine Wiedergabeinformationen";
+    const mode = this._pendingMode || attrs.source || "TV";
+    const isHdmi = mode.startsWith("HDMI");
+    const typed = attrs.loewe_channels_by_type;
+    const visibleChannels = typed && Array.isArray(typed[mode]) ? typed[mode] : channels;
+    const epgTitle = attrs.loewe_epg_title || "";
+    const epgTime = attrs.loewe_epg_time || "";
     const online = state && !["unavailable", "unknown"].includes(state.state);
     const on = online && state.state !== "off";
     const volume = Math.round((Number(attrs.volume_level) || 0) * 100);
@@ -50,6 +57,12 @@ class LoeweTVCard extends HTMLElement {
         .eyebrow {font-size:11px;letter-spacing:2px;text-transform:uppercase;opacity:.65}
         h2 {font-size:23px;font-weight:600;margin:5px 0 0}
         .display {margin:22px 0 18px;padding:22px;border-radius:16px;background:linear-gradient(135deg,#222c39,#10151d);color:#fff;min-height:95px;box-sizing:border-box}
+        .display {cursor:pointer}
+        .picker {padding:12px;border-radius:12px;background:var(--secondary-background-color,#303239);margin:10px 0}
+        .picker[hidden] {display:none}
+        .picker input {width:100%;box-sizing:border-box;padding:10px;background:transparent;color:inherit;border:1px solid #777;border-radius:8px}
+        .choices {max-height:240px;overflow:auto}
+        .choices button {display:block;width:100%;text-align:left;margin:3px 0}
         .display .label {font-size:11px;letter-spacing:1.4px;text-transform:uppercase;opacity:.6}
         .channel {font-size:24px;font-weight:650;line-height:1.3;margin-top:10px;overflow-wrap:anywhere}
         .subtitle {font-size:12px;opacity:.65;margin-top:8px}
@@ -74,20 +87,25 @@ class LoeweTVCard extends HTMLElement {
       <ha-card>
         <div class="top"><div><div class="eyebrow">Loewe · Home Assistant</div><h2>${esc(this.config.title || attrs.friendly_name || "Loewe TV")}</h2></div>
           <button class="power" data-action="power" aria-label="Ein/Aus">${on ? "⏻" : "⏻"}</button></div>
-        <div class="display"><div class="label">Aktueller Sender / Eingang</div>
-          <div class="channel">${esc(current)}</div><div class="subtitle">${esc(!online ? "Nicht verfügbar" : on ? (attrs.source || "TV eingeschaltet") : "Standby")}</div></div>
-        <div class="section"><strong>Sender</strong><span class="eyebrow">DVB-C</span></div>
-        <div class="transport">
-          <button data-action="previous" aria-label="Vorheriger Sender">◀ P−</button>
-          <button class="primary" data-action="tv" aria-label="Fernsehen">TV</button>
-          <button data-action="next" aria-label="Nächster Sender">P+ ▶</button>
+        <div class="display" id="channel-display" role="button" tabindex="0">
+          <div class="label">${isHdmi ? "Aktueller Eingang" : "Aktueller Sender · Zum Auswählen klicken ⌄"}</div>
+          <div class="channel">${esc(current)}</div>
+          <div class="subtitle">${esc(!online ? "Nicht verfügbar" : on ? mode : "Standby")}</div>
+          ${epgTitle ? `<div class="subtitle">${esc(epgTitle)} ${esc(epgTime)}</div>` : ""}
         </div>
-        <label class="eyebrow" for="channels">Sender direkt auswählen</label>
-        <select id="channels"><option value="">${channels.length ? "Sender auswählen …" : "Keine Senderliste verfügbar"}</option>
-          ${channels.map(s => `<option value="${esc(s)}">${esc(s.slice(8))}</option>`).join("")}</select>
-        <div class="section"><strong>Quellen</strong></div>
-        <select id="sources"><option value="">Quelle auswählen …</option>
-          ${inputs.map(s => `<option value="${esc(s)}" ${attrs.source === s ? "selected" : ""}>${esc(s)}</option>`).join("")}</select>
+        <div class="picker" id="channel-picker" hidden>
+          <input id="channel-search" placeholder="Sender suchen …" aria-label="Sender suchen">
+          <div class="choices" id="channel-choices"></div>
+          ${!typed && mode === "Radio" ? `<div class="subtitle">TV-/Radio-Trennung erfordert Kanaltypdaten.</div>` : ""}
+        </div>
+        <div class="transport">
+          <button data-action="previous" ${isHdmi ? "disabled" : ""}>◀ P−</button>
+          <button class="primary" data-action="sources">${esc(mode)} ⌄</button>
+          <button data-action="next" ${isHdmi ? "disabled" : ""}>P+ ▶</button>
+        </div>
+        <div class="picker" id="source-picker" hidden>
+          ${inputs.map(src => `<button data-source="${esc(src)}">${esc(src)}</button>`).join("")}
+        </div>
         <div class="section"><strong>Lautstärke</strong><button data-action="mute">${attrs.is_volume_muted ? "Ton an" : "Stumm"}</button></div>
         <div class="vol"><button data-action="vol-down" aria-label="Leiser">−</button>
           <input id="volume" type="range" min="0" max="100" step="1" value="${volume}" aria-label="Lautstärke">
@@ -100,16 +118,51 @@ class LoeweTVCard extends HTMLElement {
         const actions = {
           power: [on ? "turn_off" : "turn_on", {}],
           previous: ["media_previous_track", {}], next: ["media_next_track", {}],
-          tv: ["select_source", {source: "TV"}],
+
           mute: ["volume_mute", {is_volume_muted: !attrs.is_volume_muted}],
           "vol-down": ["volume_down", {}], "vol-up": ["volume_up", {}]
         };
-        if (actions[action]) this.call(...actions[action]);
+        if (action === "sources") {
+          const p = this.shadowRoot.getElementById("source-picker");
+          p.hidden = !p.hidden;
+          this.shadowRoot.getElementById("channel-picker").hidden = true;
+        } else if (actions[action]) this.call(...actions[action]);
       });
     });
-    for (const id of ["channels", "sources"]) this.shadowRoot.getElementById(id).addEventListener("change", e => {
-      if (e.target.value) this.call("select_source", {source: e.target.value});
+    this.shadowRoot.querySelectorAll("[data-source]").forEach(button => button.addEventListener("click", () => {
+      this._pendingMode = button.dataset.source;
+      this.call("select_source", {source: button.dataset.source});
+      this.render();
+    }));
+    const display = this.shadowRoot.getElementById("channel-display");
+    const picker = this.shadowRoot.getElementById("channel-picker");
+    const search = this.shadowRoot.getElementById("channel-search");
+    const choices = this.shadowRoot.getElementById("channel-choices");
+    const populate = () => {
+      choices.replaceChildren();
+      const q = search.value.toLocaleLowerCase();
+      visibleChannels.filter(s => s.toLocaleLowerCase().includes(q)).slice(0, 150).forEach(channel => {
+        const button = document.createElement("button");
+        button.textContent = channel.replace(/^Sender: /, "");
+        button.addEventListener("click", () => {
+          this.call("select_source", {source: channel});
+          picker.hidden = true;
+        });
+        choices.append(button);
+      });
+      if (!choices.children.length) choices.textContent = "Keine passenden Sender";
+    };
+    const toggle = () => {
+      if (isHdmi) return;
+      picker.hidden = !picker.hidden;
+      this.shadowRoot.getElementById("source-picker").hidden = true;
+      if (!picker.hidden) { populate(); search.focus(); }
+    };
+    display.addEventListener("click", toggle);
+    display.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
     });
+    search.addEventListener("input", populate);
     this.shadowRoot.getElementById("volume").addEventListener("change", e => this.call("volume_set", {volume_level: Number(e.target.value)/100}));
   }
   getCardSize() { return 7; }
