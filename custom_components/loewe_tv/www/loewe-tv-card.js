@@ -38,11 +38,13 @@ class LoeweTVCard extends HTMLElement {
     const sources = Array.isArray(attrs.source_list) ? attrs.source_list : [];
     const channels = sources.filter(s => s.startsWith("Sender: "));
     const inputs = sources.filter(s => !s.startsWith("Sender: "));
-    const current = attrs.media_title || attrs.source || "Keine Wiedergabeinformationen";
-    const mode = this._pendingMode || attrs.source || "TV";
-    const isHdmi = mode.startsWith("HDMI");
+    const mode = ["TV", "Radio", "HDMI1", "HDMI2", "HDMI3"].includes(attrs.source) ? attrs.source : null;
+    const rawTitle = attrs.media_title || "";
+    const technicalTitle = /^(channel:\/\/|dvb:\/\/|extav:\/\/|scart:\/\/|live:\/\/|[0-9a-f]{8}-[0-9a-f-]{20,})/i.test(rawTitle);
+    const current = mode?.startsWith("HDMI") ? mode : (!technicalTitle && rawTitle ? rawTitle : mode || "Quelle nicht erkannt");
+    const isHdmi = mode?.startsWith("HDMI") || false;
     const typed = attrs.loewe_channels_by_type;
-    const visibleChannels = typed && Array.isArray(typed[mode]) && typed[mode].length ? typed[mode] : channels;
+    const visibleChannels = mode && typed && Array.isArray(typed[mode]) && typed[mode].length ? typed[mode] : channels;
     const epgTitle = attrs.loewe_epg_title || "";
     const epgTime = attrs.loewe_epg_time || "";
     const online = state && !["unavailable", "unknown"].includes(state.state);
@@ -88,9 +90,9 @@ class LoeweTVCard extends HTMLElement {
         <div class="top"><div><div class="eyebrow">Loewe · Home Assistant</div><h2>${esc(this.config.title || attrs.friendly_name || "Loewe TV")}</h2></div>
           <button class="power" data-action="power" aria-label="Ein/Aus">${on ? "⏻" : "⏻"}</button></div>
         <div class="display" id="channel-display" role="button" tabindex="0">
-          <div class="label">${isHdmi ? "Aktueller Eingang" : "Aktueller Sender · Zum Auswählen klicken ⌄"}</div>
+          <div class="label">${isHdmi ? "Aktueller Eingang" : mode ? "Aktueller Sender · Zum Auswählen klicken ⌄" : "Aktuelle Quelle unbekannt"}</div>
           <div class="channel">${esc(current)}</div>
-          <div class="subtitle">${esc(!online ? "Nicht verfügbar" : on ? mode : "Standby")}</div>
+          <div class="subtitle">${esc(!online ? "Nicht verfügbar" : on ? (mode || "Quelle nicht erkannt") : "Standby")}</div>
           ${epgTitle ? `<div class="subtitle">${esc(epgTitle)} ${esc(epgTime)}</div>` : ""}
         </div>
         <div class="picker" id="channel-picker" hidden>
@@ -99,9 +101,9 @@ class LoeweTVCard extends HTMLElement {
           ${!typed && mode === "Radio" ? `<div class="subtitle">TV-/Radio-Trennung erfordert Kanaltypdaten.</div>` : ""}
         </div>
         <div class="transport">
-          <button data-action="previous" ${isHdmi ? "disabled" : ""}>◀ P−</button>
-          <button class="primary" data-action="sources">${esc(mode)} ⌄</button>
-          <button data-action="next" ${isHdmi ? "disabled" : ""}>P+ ▶</button>
+          <button data-action="previous" ${isHdmi || !mode ? "disabled" : ""}>◀ P−</button>
+          <button class="primary" data-action="sources">${esc(mode || "Quelle wählen")} ⌄</button>
+          <button data-action="next" ${isHdmi || !mode ? "disabled" : ""}>P+ ▶</button>
         </div>
         <div class="picker" id="source-picker" hidden>
           ${inputs.map(src => `<button data-source="${esc(src)}">${esc(src)}</button>`).join("")}
