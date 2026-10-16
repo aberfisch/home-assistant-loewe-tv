@@ -101,9 +101,9 @@ class LoeweTVCard extends HTMLElement {
           ${!typed && mode === "Radio" ? `<div class="subtitle">TV-/Radio-Trennung erfordert Kanaltypdaten.</div>` : ""}
         </div>
         <div class="transport">
-          <button data-action="previous" ${isHdmi || !mode ? "disabled" : ""}>◀ P−</button>
+          <button data-action="previous" ${isHdmi ? "disabled" : ""}>◀ P−</button>
           <button class="primary" data-action="sources">${esc(mode || "Quelle wählen")} ⌄</button>
-          <button data-action="next" ${isHdmi || !mode ? "disabled" : ""}>P+ ▶</button>
+          <button data-action="next" ${isHdmi ? "disabled" : ""}>P+ ▶</button>
         </div>
         <div class="picker" id="source-picker" hidden>
           ${inputs.map(src => `<button data-source="${esc(src)}">${esc(src)}</button>`).join("")}
