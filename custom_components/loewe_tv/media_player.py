@@ -167,6 +167,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         # Channel list cache: maps locator (e.g., "dvb://1") to channel name
         self._channel_cache: dict[str, str] = {}
         self._channel_list_fetched = False
+        self._channel_types: dict[str, str] = {}
         
         # Use MAC address as unique ID since it's unique per device
         self._attr_unique_id = mac.replace(":", "").lower()
@@ -231,6 +232,18 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     def source_list(self) -> list[str]:
         """Return a list of available input sources."""
         return SOURCE_LIST + [f"Sender: {name}" for name in dict.fromkeys(self._channel_cache.values()) if name]
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose verified channel categories to the optional Lovelace card."""
+        groups: dict[str, list[str]] = {"TV": [], "Radio": []}
+        for locator, name in self._channel_cache.items():
+            kind = self._channel_types.get(locator)
+            if kind in groups and name:
+                label = f"Sender: {name}"
+                if label not in groups[kind]:
+                    groups[kind].append(label)
+        return {"loewe_channels_by_type": groups}
 
     def _send_wol(self) -> None:
         """Send a Wake-on-LAN magic packet to the TV."""
@@ -1172,6 +1185,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         views = [channel_list_view] if channel_list_view else self._get_channel_list_views()
         views = [v for v in views if v.lower().startswith(("favlist", "fastscan"))]
         channel_map: dict[str, str] = {}
+        channel_types: dict[str, str] = {}
         for view in views:
             seen: set[str] = set()
             offset = 0
@@ -1210,11 +1224,19 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                     if locator and name and locator not in seen:
                         seen.add(locator)
                         channel_map[locator] = name
+                        # Classify only when the SOAP metadata explicitly identifies a type.
+                        metadata = " ".join(str(v) for k, v in element.attrib.items()
+                                            if k.lower() in ("mediaitemclass", "class", "mediatype", "servicetype")).lower()
+                        if "radio" in metadata or "audio.broadcast" in metadata:
+                            channel_types[locator] = "Radio"
+                        elif "television" in metadata or "video.broadcast" in metadata:
+                            channel_types[locator] = "TV"
                         added += 1
                 offset += added
                 if not added or total is None or offset >= total:
                     break
-        _LOGGER.info("Fetched %d Loewe channel entries from %d list views", len(channel_map), len(views))
+        self._channel_types = channel_types
+        _LOGGER.info("Fetched %d Loewe channel entries (%d classified) from %d list views", len(channel_map), len(channel_types), len(views))
         return channel_map
 
     async def async_update(self) -> None:
@@ -1284,6 +1306,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                     self._attr_media_content_type = None
                     self._channel_list_fetched = False
                     self._channel_cache = {}
+                    self._channel_types = {}
                     return
             else:
                 # TV is not reachable at all
@@ -1294,6 +1317,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 self._client_id = None
                 self._channel_list_fetched = False
                 self._channel_cache = {}
+                self._channel_types = {}
                 return
         else:
             # Successfully got volume, TV is ON

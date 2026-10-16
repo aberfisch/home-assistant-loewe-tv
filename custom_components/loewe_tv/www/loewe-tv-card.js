@@ -42,7 +42,7 @@ class LoeweTVCard extends HTMLElement {
     const mode = this._pendingMode || attrs.source || "TV";
     const isHdmi = mode.startsWith("HDMI");
     const typed = attrs.loewe_channels_by_type;
-    const visibleChannels = typed && Array.isArray(typed[mode]) ? typed[mode] : channels;
+    const visibleChannels = typed && Array.isArray(typed[mode]) && typed[mode].length ? typed[mode] : channels;
     const epgTitle = attrs.loewe_epg_title || "";
     const epgTime = attrs.loewe_epg_time || "";
     const online = state && !["unavailable", "unknown"].includes(state.state);
@@ -130,9 +130,8 @@ class LoeweTVCard extends HTMLElement {
       });
     });
     this.shadowRoot.querySelectorAll("[data-source]").forEach(button => button.addEventListener("click", () => {
-      this._pendingMode = button.dataset.source;
       this.call("select_source", {source: button.dataset.source});
-      this.render();
+      this.shadowRoot.getElementById("source-picker").hidden = true;
     }));
     const display = this.shadowRoot.getElementById("channel-display");
     const picker = this.shadowRoot.getElementById("channel-picker");
