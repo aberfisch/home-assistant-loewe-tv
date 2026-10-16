@@ -230,7 +230,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     @property
     def source_list(self) -> list[str]:
         """Return a list of available input sources."""
-        return SOURCE_LIST + [f"Sender: {name}" for name in self._channel_cache.values() if name]
+        return SOURCE_LIST + [f"Sender: {name}" for name in dict.fromkeys(self._channel_cache.values()) if name]
 
     def _send_wol(self) -> None:
         """Send a Wake-on-LAN magic packet to the TV."""
@@ -997,6 +997,10 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         # First check if we have this channel in our cache
         if locator in self._channel_cache:
             return self._channel_cache[locator]
+        identity = self._channel_identity(locator)
+        for cached_locator, name in self._channel_cache.items():
+            if self._channel_identity(cached_locator) == identity:
+                return name
         
         # Handle DVB channels (e.g., dvb://1)
         if locator.startswith("dvb://"):
@@ -1128,78 +1132,89 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             _LOGGER.error("Error processing current playback response: %s", err)
         return None
 
+    def _get_channel_list_views(self) -> list[str]:
+        """Discover actual channel-list views before requesting channels."""
+        if not self._ensure_authenticated():
+            return []
+        soap_body = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ltv="{NAMESPACE}">
+          <soapenv:Header/><soapenv:Body><ltv:GetListOfChannelLists>
+            <ltv:fcid>{self._fcid}</ltv:fcid><ltv:ClientId>{self._client_id}</ltv:ClientId>
+            <ltv:QueryParameters><ltv:Range startIndex="0" maxItems="50"/></ltv:QueryParameters>
+          </ltv:GetListOfChannelLists></soapenv:Body></soapenv:Envelope>"""
+        response = self._send_soap_request(soap_body, "GetListOfChannelLists")
+        if not response:
+            return []
+        try:
+            root = ET.fromstring(response)
+            views = []
+            for item in root.iter():
+                if self._get_local_name(item.tag) != "ResultItemChannelList":
+                    continue
+                for child in item:
+                    if self._get_local_name(child.tag) == "View" and child.text:
+                        views.append(child.text.strip())
+            _LOGGER.debug("Discovered Loewe channel list views: %s", views)
+            return views
+        except ET.ParseError as err:
+            _LOGGER.warning("Cannot parse Loewe channel list views: %s", err)
+            return []
+
+    @staticmethod
+    def _channel_identity(locator: str) -> str:
+        """Identify the same channel across favourites and full-list locators."""
+        parts = locator.split(":")
+        return parts[2] if locator.startswith("channel://") and len(parts) > 2 else locator
+
     def _get_channel_list(self, channel_list_view: str = "") -> dict[str, str]:
-        """Get the channel list from the TV and build a locator-to-name mapping.
-        
-        Args:
-            channel_list_view: The channel list view to fetch (default: "tv://Favorites/All")
-            
-        Returns:
-            Dictionary mapping channel locator (e.g., "dvb://1") to channel name
-        """
+        """Fetch discovered channel lists, preserving their actual SOAP locators."""
         if not self._ensure_authenticated():
             return {}
-        
-        soap_body = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-            xmlns:ltv="{NAMESPACE}">
-          <soapenv:Header/>
-          <soapenv:Body>
-            <ltv:GetChannelList>
-              <ltv:fcid>{self._fcid}</ltv:fcid>
-              <ltv:ClientId>{self._client_id}</ltv:ClientId>
-              <ltv:ChannelListView>{channel_list_view}</ltv:ChannelListView>
-              <ltv:QueryParameters>
-                <ltv:Range startIndex="0" maxItems="{MAX_CHANNEL_LIST_ITEMS}"/>
-              </ltv:QueryParameters>
-            </ltv:GetChannelList>
-          </soapenv:Body>
-        </soapenv:Envelope>
-        """
-        
-        resp_text = self._send_soap_request(soap_body, "GetChannelList")
-        if not resp_text:
-            _LOGGER.debug("No response from GetChannelList request")
-            return {}
-        
+        views = [channel_list_view] if channel_list_view else self._get_channel_list_views()
+        views = [v for v in views if v.lower().startswith(("favlist", "fastscan"))]
         channel_map: dict[str, str] = {}
-        try:
-            root = ET.fromstring(resp_text)
-            ns = {"ltv": NAMESPACE}
-            
-            # Parse nested ResultItem and MediaItem values without guessing locators.
-            def local(tag: str) -> str:
-                return tag.rsplit("}", 1)[-1].split(":")[-1]
-
-            for item in root.iter():
-                if local(item.tag) not in ("ResultItem", "ResultItemReference", "MediaItem"):
-                    continue
-                fields = {}
-                for node in item.iter():
-                    key = local(node.tag).lower()
-                    if node.text and node.text.strip():
-                        fields.setdefault(key, node.text.strip())
-                    for k, v in node.attrib.items():
-                        fields.setdefault(local(k).lower(), v)
-                locator = fields.get("locator") or fields.get("mediauri")
-                caption = (fields.get("caption") or fields.get("title")
-                           or fields.get("name") or fields.get("label"))
-                if locator and caption and not locator.startswith(("http://", "https://")):
-                    channel_map.setdefault(locator, caption)
-
-            if not channel_map:
-                _LOGGER.warning("Loewe channel list returned no usable locators; "
-                                "XML structure may differ on SL320. Do not guess locators.")
-            _LOGGER.debug("Fetched %d channels from TV", len(channel_map))
-            if channel_map:
-                # Log first few entries for debugging
-                sample_entries = list(channel_map.items())[:3]
-                _LOGGER.debug("Sample channels: %s", sample_entries)
-                
-        except ET.ParseError as err:
-            _LOGGER.error("Error parsing channel list XML response: %s", err)
-        except Exception as err:
-            _LOGGER.error("Error processing channel list response: %s", err)
-        
+        for view in views:
+            seen: set[str] = set()
+            offset = 0
+            while offset < MAX_CHANNEL_LIST_ITEMS:
+                soap_body = f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ltv="{NAMESPACE}">
+                  <soapenv:Header/><soapenv:Body><ltv:GetChannelList>
+                    <ltv:fcid>{self._fcid}</ltv:fcid><ltv:ClientId>{self._client_id}</ltv:ClientId>
+                    <ltv:ChannelListView>{view}</ltv:ChannelListView>
+                    <ltv:QueryParameters>
+                      <ltv:Range startIndex="{offset}" maxItems="50"/>
+                      <ltv:MediaItemInformation>true</ltv:MediaItemInformation>
+                      <ltv:MediaItemClass></ltv:MediaItemClass>
+                    </ltv:QueryParameters>
+                  </ltv:GetChannelList></soapenv:Body></soapenv:Envelope>"""
+                response = self._send_soap_request(soap_body, "GetChannelList")
+                if not response:
+                    break
+                try:
+                    root = ET.fromstring(response)
+                except ET.ParseError as err:
+                    _LOGGER.warning("Cannot parse channel list %s: %s", view, err)
+                    break
+                total = None
+                for element in root.iter():
+                    if self._get_local_name(element.tag) == "ResultItemFragment":
+                        try:
+                            total = int(element.get("totalResults", ""))
+                        except ValueError:
+                            pass
+                added = 0
+                for element in root.iter():
+                    if self._get_local_name(element.tag) != "ResultItemReference":
+                        continue
+                    locator = element.get("locator", "").strip()
+                    name = (element.get("shortInfo") or element.get("caption") or "").strip()
+                    if locator and name and locator not in seen:
+                        seen.add(locator)
+                        channel_map[locator] = name
+                        added += 1
+                offset += added
+                if not added or total is None or offset >= total:
+                    break
+        _LOGGER.info("Fetched %d Loewe channel entries from %d list views", len(channel_map), len(views))
         return channel_map
 
     async def async_update(self) -> None:
