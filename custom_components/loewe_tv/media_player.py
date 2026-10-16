@@ -73,6 +73,8 @@ RC_KEY_VOLUME_DOWN = 17
 RC_KEY_CHANNEL_UP = 32
 RC_KEY_CHANNEL_DOWN = 33
 RC_KEY_PLAY = 40
+# Experimental input key mapping for SL320, requires device validation.
+SOURCE_RC_KEYS = {"TV": 72, "Radio": 53, "HDMI1": 119, "HDMI2": 121, "HDMI3": 122}
 
 # Source names for input selection
 SOURCE_TV = "TV"
@@ -228,7 +230,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
     @property
     def source_list(self) -> list[str]:
         """Return a list of available input sources."""
-        return SOURCE_LIST
+        return SOURCE_LIST + [f"Sender: {name}" for name in self._channel_cache.values() if name]
 
     def _send_wol(self) -> None:
         """Send a Wake-on-LAN magic packet to the TV."""
@@ -1126,7 +1128,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             _LOGGER.error("Error processing current playback response: %s", err)
         return None
 
-    def _get_channel_list(self, channel_list_view: str = "tv://Favorites/All") -> dict[str, str]:
+    def _get_channel_list(self, channel_list_view: str = "") -> dict[str, str]:
         """Get the channel list from the TV and build a locator-to-name mapping.
         
         Args:
@@ -1164,22 +1166,29 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             root = ET.fromstring(resp_text)
             ns = {"ltv": NAMESPACE}
             
-            # Find all ResultItemReference elements which contain channel info
-            # Each ResultItemReference has attributes: locator, caption (channel name)
-            result_items = root.findall(".//ltv:ResultItemReference", ns)
-            if not result_items:
-                # Fallback: try with explicit namespace
-                result_items = root.findall(f".//{{{NAMESPACE}}}ResultItemReference")
-            if not result_items:
-                # Fallback: try without namespace
-                result_items = root.findall(".//ResultItemReference")
-            
-            for item in result_items:
-                locator = item.get("locator")
-                caption = item.get("caption")
-                if locator and caption:
-                    channel_map[locator] = caption
-            
+            # Parse nested ResultItem and MediaItem values without guessing locators.
+            def local(tag: str) -> str:
+                return tag.rsplit("}", 1)[-1].split(":")[-1]
+
+            for item in root.iter():
+                if local(item.tag) not in ("ResultItem", "ResultItemReference", "MediaItem"):
+                    continue
+                fields = {}
+                for node in item.iter():
+                    key = local(node.tag).lower()
+                    if node.text and node.text.strip():
+                        fields.setdefault(key, node.text.strip())
+                    for k, v in node.attrib.items():
+                        fields.setdefault(local(k).lower(), v)
+                locator = fields.get("locator") or fields.get("mediauri")
+                caption = (fields.get("caption") or fields.get("title")
+                           or fields.get("name") or fields.get("label"))
+                if locator and caption and not locator.startswith(("http://", "https://")):
+                    channel_map.setdefault(locator, caption)
+
+            if not channel_map:
+                _LOGGER.warning("Loewe channel list returned no usable locators; "
+                                "XML structure may differ on SL320. Do not guess locators.")
             _LOGGER.debug("Fetched %d channels from TV", len(channel_map))
             if channel_map:
                 # Log first few entries for debugging
@@ -1444,26 +1453,29 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         Args:
             source: Source name to switch to
         """
-        if source not in SOURCE_TO_LOCATOR:
-            _LOGGER.error("Unknown source: %s. Available sources: %s", source, SOURCE_LIST)
+        if source.startswith("Sender: "):
+            name = source[len("Sender: "):]
+            matches = [loc for loc, title in self._channel_cache.items() if title == name]
+            if len(matches) != 1:
+                _LOGGER.warning("Channel selection ambiguous or unknown: %s", name)
+                return
+            success = await self._hass.async_add_executor_job(self._zap_to_media, "MainVideo", matches[0])
+            if success:
+                await self.async_update()
+                self.async_write_ha_state()
             return
-        
-        locator = SOURCE_TO_LOCATOR[source]
-        _LOGGER.info("Switching to source %s (locator: %s)", source, locator)
-        
+        if source not in SOURCE_RC_KEYS:
+            _LOGGER.error("Unsupported input source: %s", source)
+            return
         success = await self._hass.async_add_executor_job(
-            self._zap_to_media, "MainVideo", locator
+            self._inject_rc_key, SOURCE_RC_KEYS[source]
         )
-        
-        if success:
-            # Update cached source and media title immediately for responsive UI
-            self._source = source
-            self._media_title = self._format_channel_title(locator)
-            _LOGGER.debug("Successfully switched to source %s", source)
-            # Notify Home Assistant that the state has changed
-            self.async_write_ha_state()
-        else:
-            _LOGGER.error("Failed to switch to source %s", source)
+        if not success:
+            _LOGGER.error("Input source key failed: %s", source)
+            return
+        await asyncio.sleep(CHANNEL_CHANGE_DELAY)
+        await self.async_update()
+        self.async_write_ha_state()
 
     async def async_play_media(self, media_type: str, media_id: str, **kwargs: Any) -> None:
         """Switch to a specific channel by number or locator."""
@@ -1473,10 +1485,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 if 0 <= channel <= 999:
                     _LOGGER.info("Switching to channel %d", channel)
                     # Use ZapToMedia with channel locator format
-                    locator = f"dvb://{channel}"
-                    await self._hass.async_add_executor_job(
-                        self._zap_to_media, "MainVideo", locator
-                    )
+                    _LOGGER.warning("Numeric channel selection requires a discovered channel-number mapping.")
                 else:
                     _LOGGER.error("Channel number must be between 0 and 999")
             except ValueError:

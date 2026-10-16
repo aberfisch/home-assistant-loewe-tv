@@ -4,6 +4,13 @@ Alle wesentlichen Änderungen werden hier fortlaufend dokumentiert. Geplant und 
 
 ## [Unreleased]
 
+### Entwicklungsstatus (16.10.2026)
+- Entwicklungsbranch `dev/loewe-1.0.2-test` erstellt; `main` bleibt unverändert.
+- Testcode 1.0.2 in den Entwicklungsbranch übernommen; Manifestversion auf 1.0.2 gesetzt.
+- Experimentelle Quellen-Tastencodes und erweiterte Senderauswertung integriert; Funktion am SL320 noch nicht bestätigt.
+- Kein GitHub-Release oder Versions-Tag veröffentlicht; `main` bleibt auf Version 1.0.0.
+
+
 ### Geplant
 - Dynamische DVB-C-Senderlistenabfrage und Zuordnung der 197 Sender
 - Korrekte Anzeige des aktuellen Senders anhand des Loewe-Locators
