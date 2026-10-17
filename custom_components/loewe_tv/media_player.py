@@ -189,7 +189,6 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             | MediaPlayerEntityFeature.PREVIOUS_TRACK
             | MediaPlayerEntityFeature.PLAY_MEDIA
             | MediaPlayerEntityFeature.SELECT_SOURCE
-            | MediaPlayerEntityFeature.PLAY
         )
         
         # Media content type - set to CHANNEL when TV is on to enable channel controls
