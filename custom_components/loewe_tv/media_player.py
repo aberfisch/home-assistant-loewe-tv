@@ -82,6 +82,7 @@ SOURCE_RADIO = "Radio"
 SOURCE_HDMI1 = "HDMI1"
 SOURCE_HDMI2 = "HDMI2"
 SOURCE_HDMI3 = "HDMI3"
+SOURCE_HDMI4 = "HDMI4"
 
 # Mapping from source names to locator URIs used by ZapToMedia
 # Loewe TVs use 'extav://' scheme for external AV inputs like HDMI
@@ -92,6 +93,7 @@ SOURCE_TO_LOCATOR = {
     SOURCE_HDMI1: "extav://HDMI1",
     SOURCE_HDMI2: "extav://HDMI2",
     SOURCE_HDMI3: "extav://HDMI3",
+    SOURCE_HDMI4: "extav://HDMI4",
 }
 
 # Reverse mapping from locator to source name
@@ -102,10 +104,11 @@ LOCATOR_TO_SOURCE = {
     "extav://HDMI1": SOURCE_HDMI1,
     "extav://HDMI2": SOURCE_HDMI2,
     "extav://HDMI3": SOURCE_HDMI3,
+    "extav://HDMI4": SOURCE_HDMI4,
 }
 
 # List of available sources for source selection
-SOURCE_LIST = [SOURCE_TV, SOURCE_RADIO, SOURCE_HDMI1, SOURCE_HDMI2, SOURCE_HDMI3]
+SOURCE_LIST = [SOURCE_TV, SOURCE_RADIO, SOURCE_HDMI1, SOURCE_HDMI2, SOURCE_HDMI3, SOURCE_HDMI4]
 
 
 async def async_setup_platform(
@@ -466,6 +469,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             return SOURCE_HDMI2
         elif identifier in ("HDMI3", "3"):
             return SOURCE_HDMI3
+        elif identifier in ("HDMI4", "4"):
+            return SOURCE_HDMI4
         
         return None
 
@@ -1068,6 +1073,12 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         Returns:
             Source name (HDMI1, HDMI2, HDMI3, TV, Radio) or None if not a source locator
         """
+        # Playback on SL320 may report HDMI as channel://4:hdmi4:<id>.
+        if locator.lower().startswith("channel://"):
+            parts = locator.split(":")
+            if len(parts) > 2 and parts[2].lower().startswith("hdmi"):
+                return self._get_hdmi_source_from_identifier(parts[2])
+
         # Check for exact match in LOCATOR_TO_SOURCE mapping
         if locator in LOCATOR_TO_SOURCE:
             return LOCATOR_TO_SOURCE[locator]
@@ -1095,8 +1106,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             locator: The media locator URI, or None to clear the media info
         """
         if locator:
-            self._media_title = self._format_channel_title(locator)
             self._source = self._get_source_from_locator(locator)
+            self._media_title = self._source if self._source and self._source.startswith("HDMI") else self._format_channel_title(locator)
             _LOGGER.debug("Current playback locator: %s, title: %s, source: %s", locator, self._media_title, self._source)
         else:
             self._media_title = None
