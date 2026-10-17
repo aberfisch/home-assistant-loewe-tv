@@ -38,7 +38,7 @@ class LoeweTVCard extends HTMLElement {
     const sources = Array.isArray(attrs.source_list) ? attrs.source_list : [];
     const channels = sources.filter(s => s.startsWith("Sender: "));
     const inputs = sources.filter(s => !s.startsWith("Sender: "));
-    const mode = ["TV", "Radio", "HDMI1", "HDMI2", "HDMI3"].includes(attrs.source) ? attrs.source : null;
+    const mode = ["TV", "Radio", "HDMI1", "HDMI2", "HDMI3", "HDMI4"].includes(attrs.source) ? attrs.source : null;
     const rawTitle = attrs.media_title || "";
     const technicalTitle = /^(channel:\/\/|dvb:\/\/|extav:\/\/|scart:\/\/|live:\/\/|[0-9a-f]{8}-[0-9a-f-]{20,})/i.test(rawTitle);
     const current = mode?.startsWith("HDMI") ? mode : (!technicalTitle && rawTitle ? rawTitle : mode || "Quelle nicht erkannt");
@@ -49,6 +49,7 @@ class LoeweTVCard extends HTMLElement {
     const epgTime = attrs.loewe_epg_time || "";
     const online = state && !["unavailable", "unknown"].includes(state.state);
     const on = online && state.state !== "off";
+    const statusText = !online ? "Nicht verfügbar" : on ? "Eingeschaltet" : "Ausgeschaltet";
     const volume = Math.round((Number(attrs.volume_level) || 0) * 100);
     const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
     this.shadowRoot.innerHTML = `
@@ -72,7 +73,15 @@ class LoeweTVCard extends HTMLElement {
         button:focus-visible,select:focus-visible,input:focus-visible {outline:2px solid var(--loewe-accent);outline-offset:2px}
         button:disabled {opacity:.35;cursor:not-allowed}
         button.primary {background:var(--loewe-accent);color:#141414;font-weight:700}
-        button.power {font-size:22px;min-width:50px}
+        button.power {font-size:22px;min-width:50px;border:2px solid transparent}
+        button.power.on {background:#1c7144;color:#fff;border-color:#40b879}
+        button.power.off {background:var(--secondary-background-color,#35373c);color:var(--secondary-text-color,#bbb);border-color:var(--divider-color,#777)}
+        .power-group {display:flex;align-items:center;gap:10px}
+        .power-status {display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;white-space:nowrap}
+        .power-dot {width:11px;height:11px;border-radius:50%;background:#929292}
+        .power-status.on .power-dot {background:#35bb75;box-shadow:0 0 0 3px rgba(53,187,117,.18)}
+        .power-status.off .power-dot {background:#999}
+        .power-status.unknown .power-dot {background:#d9a441}
         .transport {margin:16px 0}
         .transport button {flex:1;font-size:17px}
         .transport button.primary {flex:1.3;font-size:20px}
@@ -88,11 +97,11 @@ class LoeweTVCard extends HTMLElement {
       </style>
       <ha-card>
         <div class="top"><div><div class="eyebrow">Loewe · Home Assistant</div><h2>${esc(this.config.title || attrs.friendly_name || "Loewe TV")}</h2></div>
-          <button class="power" data-action="power" aria-label="Ein/Aus">${on ? "⏻" : "⏻"}</button></div>
+          <div class="power-group"><div class="power-status ${!online ? "unknown" : on ? "on" : "off"}" role="status"><span class="power-dot"></span>${esc(statusText)}</div><button class="power ${on ? "on" : "off"}" data-action="power" aria-label="${on ? "Fernseher ausschalten" : "Fernseher einschalten"}" title="${on ? "Ausschalten" : "Einschalten"}">⏻</button></div></div>
         <div class="display" id="channel-display" role="button" tabindex="0">
           <div class="label">${isHdmi ? "Aktueller Eingang" : mode ? "Aktueller Sender · Zum Auswählen klicken ⌄" : "Aktuelle Quelle unbekannt"}</div>
           <div class="channel">${esc(current)}</div>
-          <div class="subtitle">${esc(!online ? "Nicht verfügbar" : on ? (mode || "Quelle nicht erkannt") : "Standby")}</div>
+          <div class="subtitle">${esc(!online ? "Nicht verfügbar" : on ? (mode || "Quelle nicht erkannt") : "Ausgeschaltet")}</div>
           ${epgTitle ? `<div class="subtitle">${esc(epgTitle)} ${esc(epgTime)}</div>` : ""}
         </div>
         <div class="picker" id="channel-picker" hidden>
