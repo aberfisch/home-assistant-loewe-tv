@@ -74,7 +74,7 @@ RC_KEY_CHANNEL_UP = 24  # PROG_PL (P+)
 RC_KEY_CHANNEL_DOWN = 23  # PROG_MI (P-)
 RC_KEY_PLAY = 40
 # Experimental input key mapping for SL320, requires device validation.
-SOURCE_RC_KEYS = {"TV": 72, "Radio": 53, "HDMI1": 119, "HDMI2": 121, "HDMI3": 122}
+SOURCE_RC_KEYS = {"TV": 72, "Radio": 53, "HDMI1": 119, "HDMI2": 121, "HDMI3": 122, "HDMI4": 123}
 
 # Source names for input selection
 SOURCE_TV = "TV"
@@ -171,6 +171,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         self._channel_cache: dict[str, str] = {}
         self._channel_list_fetched = False
         self._channel_types: dict[str, str] = {}
+        self._channel_list_kinds: dict[str, str] = {}
         
         # Use MAC address as unique ID since it's unique per device
         self._attr_unique_id = mac.replace(":", "").lower()
@@ -189,7 +190,6 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             | MediaPlayerEntityFeature.PREVIOUS_TRACK
             | MediaPlayerEntityFeature.PLAY_MEDIA
             | MediaPlayerEntityFeature.SELECT_SOURCE
-            | MediaPlayerEntityFeature.PLAY
         )
         
         # Media content type - set to CHANNEL when TV is on to enable channel controls
@@ -1171,13 +1171,24 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         try:
             root = ET.fromstring(response)
             views = []
+            kinds: dict[str, str] = {}
             for item in root.iter():
                 if self._get_local_name(item.tag) != "ResultItemChannelList":
                     continue
-                for child in item:
-                    if self._get_local_name(child.tag) == "View" and child.text:
-                        views.append(child.text.strip())
-            _LOGGER.debug("Discovered Loewe channel list views: %s", views)
+                view = next((child.text.strip() for child in item if self._get_local_name(child.tag) == "View" and child.text), None)
+                if view:
+                    views.append(view)
+                    for node in item.iter():
+                        if self._get_local_name(node.tag) == "AdditionalAttributes" and node.text:
+                            try:
+                                flags = int(node.text.strip(), 0)
+                            except ValueError:
+                                break
+                            if bool(flags & 4) != bool(flags & 8):
+                                kinds[view] = "TV" if flags & 4 else "Radio"
+                            break
+            self._channel_list_kinds = kinds
+            _LOGGER.debug("Discovered Loewe channel list views: %s (classified: %s)", views, kinds)
             return views
         except ET.ParseError as err:
             _LOGGER.warning("Cannot parse Loewe channel list views: %s", err)
@@ -1235,6 +1246,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                     if locator and name and locator not in seen:
                         seen.add(locator)
                         channel_map[locator] = name
+                        if view in self._channel_list_kinds:
+                            channel_types[locator] = self._channel_list_kinds[view]
                         # Classify only when the SOAP metadata explicitly identifies a type.
                         metadata = " ".join(str(v) for k, v in element.attrib.items()
                                             if k.lower() in ("mediaitemclass", "class", "mediatype", "servicetype")).lower()
