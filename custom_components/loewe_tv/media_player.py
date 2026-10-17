@@ -1134,7 +1134,9 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         
         resp_text = self._send_soap_request(soap_body, "GetCurrentPlayback")
         if not resp_text:
+            _LOGGER.debug("Playback diagnostic: MainVideo returned no response")
             return None
+        _LOGGER.debug("Playback diagnostic: MainVideo XML: %s", resp_text[:2000])
         
         try:
             root = ET.fromstring(resp_text)
