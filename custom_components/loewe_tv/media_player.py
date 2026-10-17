@@ -171,6 +171,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         self._channel_cache: dict[str, str] = {}
         self._channel_list_fetched = False
         self._channel_types: dict[str, str] = {}
+        self._channels_by_uuid: dict[str, tuple[str, str]] = {}
         self._channel_list_kinds: dict[str, str] = {}
         
         # Use MAC address as unique ID since it's unique per device
@@ -1099,6 +1100,27 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         
         return None
 
+    def _update_media_info_from_playback(self, playback: dict | None) -> None:
+        """Prefer the current media UUID over a potentially stale TV locator."""
+        if not playback:
+            self._update_media_info_from_locator(None)
+            return
+        locator = playback.get("locator")
+        uuid = playback.get("media_item_uuid")
+        # HDMI/source locators are authoritative; never override them with a channel UUID.
+        source = self._get_source_from_locator(locator) if locator else None
+        if source and source.startswith("HDMI"):
+            self._update_media_info_from_locator(locator)
+            return
+        channel = self._channels_by_uuid.get(uuid) if uuid else None
+        if channel:
+            channel_locator, channel_name = channel
+            self._media_title = channel_name
+            self._source = self._channel_types.get(channel_locator) or SOURCE_TV
+            _LOGGER.debug("Current playback resolved by media UUID: title=%s source=%s", channel_name, self._source)
+            return
+        self._update_media_info_from_locator(locator)
+
     def _update_media_info_from_locator(self, locator: str | None) -> None:
         """Update media title and source from a playback locator.
         
@@ -1214,6 +1236,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         views = [v for v in views if v.lower().startswith(("favlist", "fastscan"))]
         channel_map: dict[str, str] = {}
         channel_types: dict[str, str] = {}
+        channels_by_uuid: dict[str, tuple[str, str]] = {}
         for view in views:
             seen: set[str] = set()
             offset = 0
@@ -1252,8 +1275,19 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                     if locator and name and locator not in seen:
                         seen.add(locator)
                         channel_map[locator] = name
+                        uuid = (element.get("mediaItemUuid") or "").strip()
+                        if uuid:
+                            channels_by_uuid[uuid] = (locator, name)
                         if view in self._channel_list_kinds:
                             channel_types[locator] = self._channel_list_kinds[view]
+                        # Diagnose channel metadata without logging SOAP credentials.
+                        if len(seen) <= 3:
+                            _LOGGER.debug(
+                                "Channel metadata sample: view=%s locator=%s attributes=%s children=%s",
+                                view, locator, dict(element.attrib),
+                                [(self._get_local_name(child.tag), (child.text or "").strip()[:100])
+                                 for child in element],
+                            )
                         # Classify only when the SOAP metadata explicitly identifies a type.
                         metadata = " ".join(str(v) for k, v in element.attrib.items()
                                             if k.lower() in ("mediaitemclass", "class", "mediatype", "servicetype")).lower()
@@ -1266,6 +1300,8 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 if not added or total is None or offset >= total:
                     break
         self._channel_types = channel_types
+        self._channels_by_uuid = channels_by_uuid
+        _LOGGER.debug("Indexed %d Loewe channel UUIDs", len(channels_by_uuid))
         _LOGGER.info("Fetched %d Loewe channel entries (%d classified) from %d list views", len(channel_map), len(channel_types), len(views))
         return channel_map
 
@@ -1322,7 +1358,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                                 _LOGGER.info("TV state verified as ON via GetCurrentPlayback after re-authentication")
                                 self._state = MediaPlayerState.ON
                                 # Update media title and source from playback info
-                                self._update_media_info_from_locator(playback.get("locator"))
+                                self._update_media_info_from_playback(playback)
                             else:
                                 # All SOAP operations failed despite successful authentication
                                 # This might indicate TV is starting up or in an unusual state
@@ -1337,6 +1373,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                     self._channel_list_fetched = False
                     self._channel_cache = {}
                     self._channel_types = {}
+                    self._channels_by_uuid = {}
                     return
             else:
                 # TV is not reachable at all
@@ -1348,6 +1385,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                 self._channel_list_fetched = False
                 self._channel_cache = {}
                 self._channel_types = {}
+                self._channels_by_uuid = {}
                 return
         else:
             # Successfully got volume, TV is ON
@@ -1373,7 +1411,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         if not playback_fetched:
             playback = await self._hass.async_add_executor_job(self._get_current_playback)
             locator = playback.get("locator") if playback is not None else None
-            self._update_media_info_from_locator(locator)
+            self._update_media_info_from_playback(playback)
 
         # Update media content type based on TV state
         # Set to CHANNEL when TV is ON to enable channel controls (next/previous track)
@@ -1488,7 +1526,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         playback = await self._hass.async_add_executor_job(self._get_current_playback)
         if playback:
             locator = playback.get("locator")
-            self._update_media_info_from_locator(locator)
+            self._update_media_info_from_playback(playback)
             _LOGGER.debug("Channel changed to: %s", self._media_title)
         # Notify Home Assistant that the state has changed
         self.async_write_ha_state()
