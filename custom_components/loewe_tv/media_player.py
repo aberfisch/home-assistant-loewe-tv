@@ -1254,6 +1254,14 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
                         channel_map[locator] = name
                         if view in self._channel_list_kinds:
                             channel_types[locator] = self._channel_list_kinds[view]
+                        # Diagnose channel metadata without logging SOAP credentials.
+                        if len(seen) <= 3:
+                            _LOGGER.debug(
+                                "Channel metadata sample: view=%s locator=%s attributes=%s children=%s",
+                                view, locator, dict(element.attrib),
+                                [(self._get_local_name(child.tag), (child.text or "").strip()[:100])
+                                 for child in element],
+                            )
                         # Classify only when the SOAP metadata explicitly identifies a type.
                         metadata = " ".join(str(v) for k, v in element.attrib.items()
                                             if k.lower() in ("mediaitemclass", "class", "mediatype", "servicetype")).lower()
