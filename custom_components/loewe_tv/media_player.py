@@ -1126,7 +1126,7 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             <ltv:GetCurrentPlayback>
               <ltv:fcid>{self._fcid}</ltv:fcid>
               <ltv:ClientId>{self._client_id}</ltv:ClientId>
-              <ltv:Player>MainVideo</ltv:Player>
+              <ltv:Player>0</ltv:Player>
             </ltv:GetCurrentPlayback>
           </soapenv:Body>
         </soapenv:Envelope>
@@ -1134,15 +1134,16 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
         
         resp_text = self._send_soap_request(soap_body, "GetCurrentPlayback")
         if not resp_text:
-            _LOGGER.debug("Playback diagnostic: MainVideo returned no response")
+            _LOGGER.debug("Playback diagnostic: player 0 returned no response")
             return None
-        _LOGGER.debug("Playback diagnostic: MainVideo XML: %s", resp_text[:2000])
+        # Avoid logging the complete SOAP envelope (which contains client identifiers).
         
         try:
             root = ET.fromstring(resp_text)
             ns = {"ltv": NAMESPACE}
             mode = root.find(".//ltv:Mode", ns)
             locator = root.find(".//ltv:Locator", ns)
+            media_uuid = root.find(".//ltv:MediaItemUuid", ns)
             
             result = {}
             if mode is not None and mode.text:
@@ -1150,6 +1151,9 @@ class LoeweTVMediaPlayer(MediaPlayerEntity):
             if locator is not None and locator.text:
                 result["locator"] = locator.text
             
+            if media_uuid is not None and media_uuid.text:
+                result["media_item_uuid"] = media_uuid.text
+            _LOGGER.debug("Playback diagnostic: player 0 mode=%s locator=%s media_uuid=%s", result.get("mode"), result.get("locator"), result.get("media_item_uuid"))
             return result if result else None
         except ET.ParseError as err:
             _LOGGER.error("Error parsing current playback XML response: %s", err)

@@ -44,7 +44,8 @@ class LoeweTVCard extends HTMLElement {
     const current = mode?.startsWith("HDMI") ? mode : (!technicalTitle && rawTitle ? rawTitle : mode || "Quelle nicht erkannt");
     const isHdmi = mode?.startsWith("HDMI") || false;
     const typed = attrs.loewe_channels_by_type;
-    const visibleChannels = mode === "Radio" ? (Array.isArray(typed?.Radio) ? typed.Radio : []) : mode === "TV" ? (Array.isArray(typed?.TV) && typed.TV.length ? typed.TV : channels) : [];
+    const classified = mode === "Radio" ? typed?.Radio : mode === "TV" ? typed?.TV : null;
+    const visibleChannels = Array.isArray(classified) && classified.length ? classified : channels;
     const epgTitle = attrs.loewe_epg_title || "";
     const epgTime = attrs.loewe_epg_time || "";
     const online = state && !["unavailable", "unknown"].includes(state.state);
@@ -107,7 +108,7 @@ class LoeweTVCard extends HTMLElement {
         <div class="picker" id="channel-picker" hidden>
           <input id="channel-search" placeholder="Sender suchen …" aria-label="Sender suchen">
           <div class="choices" id="channel-choices"></div>
-          ${mode === "Radio" && !visibleChannels.length ? `<div class="subtitle">Noch keine eindeutig erkannten Radiosender. Die SOAP-Senderliste muss geprüft werden.</div>` : ""}
+          ${mode === "Radio" && !visibleChannels.length ? `<div class="subtitle">Die TV-/Radio-Zuordnung ist noch nicht verfügbar. Es werden alle Sender angezeigt.</div>` : ""}
         </div>
         <div class="transport">
           <button data-action="previous" ${isHdmi ? "disabled" : ""}>◀ P−</button>
@@ -160,7 +161,7 @@ class LoeweTVCard extends HTMLElement {
         });
         choices.append(button);
       });
-      if (!choices.children.length) choices.textContent = mode === "Radio" && !visibleChannels.length ? "Keine bestätigten Radiosender verfügbar" : "Keine passenden Sender";
+      if (!choices.children.length) choices.textContent = "Keine passenden Sender";
     };
     const toggle = () => {
       if (isHdmi) return;
