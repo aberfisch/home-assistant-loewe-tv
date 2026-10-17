@@ -44,7 +44,7 @@ class LoeweTVCard extends HTMLElement {
     const current = mode?.startsWith("HDMI") ? mode : (!technicalTitle && rawTitle ? rawTitle : mode || "Quelle nicht erkannt");
     const isHdmi = mode?.startsWith("HDMI") || false;
     const typed = attrs.loewe_channels_by_type;
-    const visibleChannels = mode && typed && Array.isArray(typed[mode]) && typed[mode].length ? typed[mode] : channels;
+    const visibleChannels = mode === "Radio" ? (Array.isArray(typed?.Radio) ? typed.Radio : []) : mode === "TV" ? (Array.isArray(typed?.TV) && typed.TV.length ? typed.TV : channels) : [];
     const epgTitle = attrs.loewe_epg_title || "";
     const epgTime = attrs.loewe_epg_time || "";
     const online = state && !["unavailable", "unknown"].includes(state.state);
@@ -84,7 +84,7 @@ class LoeweTVCard extends HTMLElement {
         .power-status.unknown .power-dot {background:#d9a441}
         .transport {margin:16px 0}
         .transport button {flex:1;font-size:17px}
-        .transport button.primary {flex:1.3;font-size:20px}
+        .transport button.primary {flex:0 1 auto;font-size:14px;min-width:88px;max-width:150px;padding:9px 12px}
         .section {margin:20px 0 8px}
         .section label {font-size:12px;opacity:.7}
         .vol {margin-top:12px}
@@ -107,7 +107,7 @@ class LoeweTVCard extends HTMLElement {
         <div class="picker" id="channel-picker" hidden>
           <input id="channel-search" placeholder="Sender suchen …" aria-label="Sender suchen">
           <div class="choices" id="channel-choices"></div>
-          ${!typed && mode === "Radio" ? `<div class="subtitle">TV-/Radio-Trennung erfordert Kanaltypdaten.</div>` : ""}
+          ${mode === "Radio" && !visibleChannels.length ? `<div class="subtitle">Noch keine eindeutig erkannten Radiosender. Die SOAP-Senderliste muss geprüft werden.</div>` : ""}
         </div>
         <div class="transport">
           <button data-action="previous" ${isHdmi ? "disabled" : ""}>◀ P−</button>
@@ -160,7 +160,7 @@ class LoeweTVCard extends HTMLElement {
         });
         choices.append(button);
       });
-      if (!choices.children.length) choices.textContent = "Keine passenden Sender";
+      if (!choices.children.length) choices.textContent = mode === "Radio" && !visibleChannels.length ? "Keine bestätigten Radiosender verfügbar" : "Keine passenden Sender";
     };
     const toggle = () => {
       if (isHdmi) return;
